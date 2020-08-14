@@ -17,6 +17,7 @@ Axis::Axis(int axis_num,
            OnboardThermistorCurrentLimiter& fet_thermistor,
            OffboardThermistorCurrentLimiter& motor_thermistor,
            Motor& motor,
+           Gearbox& gearbox,
            TrapezoidalTrajectory& trap,
            Endstop& min_endstop,
            Endstop& max_endstop)
@@ -29,6 +30,7 @@ Axis::Axis(int axis_num,
       fet_thermistor_(fet_thermistor),
       motor_thermistor_(motor_thermistor),
       motor_(motor),
+      gearbox_(gearbox),
       trap_traj_(trap),
       min_endstop_(min_endstop),
       max_endstop_(max_endstop),
@@ -45,6 +47,7 @@ Axis::Axis(int axis_num,
     fet_thermistor_.axis_ = this;
     motor_thermistor.axis_ = this;
     motor_.axis_ = this;
+    gearbox_.axis_ = this;
     trap_traj_.axis_ = this;
     min_endstop_.axis_ = this;
     max_endstop_.axis_ = this;
@@ -233,24 +236,24 @@ bool Axis::run_lockin_spin(const LockinConfig_t &lockin_config) {
     lockin_state_ = LOCKIN_STATE_RAMP;
     float x = 0.0f;
     run_control_loop([&]() {
-        float phase = wrap_pm_pi(lockin_config.ramp_distance * x);
-        float torque = lockin_config.current * motor_.config_.torque_constant * x;
+        phase_ = wrap_pm_pi(lockin_config.ramp_distance * x);
+        torque_ = lockin_config.current * motor_.config_.torque_constant * x;
         x += current_meas_period / lockin_config.ramp_time;
-        if (!motor_.update(torque, phase, 0.0f))
+        if (!motor_.update(torque_, phase_, 0.0f))
             return false;
         return x < 1.0f;
     });
     
     // Spin states
     float distance = lockin_config.ramp_distance;
-    float phase = wrap_pm_pi(distance);
-    float vel = distance / lockin_config.ramp_time;
+    phase_ = wrap_pm_pi(distance);
+    phase_vel_ = distance / lockin_config.ramp_time;
 
     // Function of states to check if we are done
     auto spin_done = [&](bool vel_override = false) -> bool {
         bool done = false;
         if (lockin_config.finish_on_vel || vel_override)
-            done = done || std::abs(vel) >= std::abs(lockin_config.vel);
+            done = done || std::abs(phase_vel_) >= std::abs(lockin_config.vel);
         if (lockin_config.finish_on_distance)
             done = done || std::abs(distance) >= std::abs(lockin_config.finish_distance);
         if (lockin_config.finish_on_enc_idx)
@@ -261,11 +264,12 @@ bool Axis::run_lockin_spin(const LockinConfig_t &lockin_config) {
     // Accelerate
     lockin_state_ = LOCKIN_STATE_ACCELERATE;
     run_control_loop([&]() {
-        vel += lockin_config.accel * current_meas_period;
-        distance += vel * current_meas_period;
-        phase = wrap_pm_pi(phase + vel * current_meas_period);
+        phase_vel_ += lockin_config.accel * current_meas_period;
+        distance += phase_vel_ * current_meas_period;
+        phase_ = wrap_pm_pi(phase_ + phase_vel_ * current_meas_period);
+        torque_ = lockin_config.current * motor_.config_.torque_constant;
 
-        if (!motor_.update(lockin_config.current * motor_.config_.torque_constant, phase, vel))
+        if (!motor_.update(torque_, phase_, phase_vel_))
             return false;
         return !spin_done(true); //vel_override to go to next phase
     });
@@ -276,12 +280,13 @@ bool Axis::run_lockin_spin(const LockinConfig_t &lockin_config) {
     // Constant speed
     if (!spin_done()) {
         lockin_state_ = LOCKIN_STATE_CONST_VEL;
-        vel = lockin_config.vel; // reset to actual specified vel to avoid small integration error
+        phase_vel_ = lockin_config.vel; // reset to actual specified vel to avoid small integration error
         run_control_loop([&]() {
-            distance += vel * current_meas_period;
-            phase = wrap_pm_pi(phase + vel * current_meas_period);
+            distance += phase_vel_ * current_meas_period;
+            phase_ = wrap_pm_pi(phase_ + phase_vel_ * current_meas_period);
+            torque_ = lockin_config.current * motor_.config_.torque_constant;
 
-            if (!motor_.update(lockin_config.current * motor_.config_.torque_constant, phase, vel))
+            if (!motor_.update(torque_, phase_, phase_vel_))
                 return false;
             return !spin_done();
         });
@@ -301,10 +306,11 @@ bool Axis::run_sensorless_control_loop() {
 
     run_control_loop([this](){
         // Note that all estimators are updated in the loop prefix in run_control_loop
-        float torque_setpoint;
-        if (!controller_.update(&torque_setpoint))
+        if (!controller_.update(&torque_, motor_.max_available_torque()))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
-        if (!motor_.update(torque_setpoint, sensorless_estimator_.phase_, sensorless_estimator_.vel_estimate_))
+        phase_ = sensorless_estimator_.phase_;
+        phase_vel_ = sensorless_estimator_.vel_estimate_erad_;
+        if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_
         return true;
     });
@@ -341,14 +347,27 @@ bool Axis::run_closed_loop_control_loop() {
     controller_.vel_integrator_torque_ = 0.0f;
 
     set_step_dir_active(config_.enable_step_dir);
-    run_control_loop([this](){
-        // Note that all estimators are updated in the loop prefix in run_control_loop
+    // Calculate torque limit for axis
+    float torque_limit = motor_.max_available_torque();
+    if (gearbox_.encoder_is_scaled()) {
+        torque_limit *= gearbox_.torque_mul_ratio();
+    }
+    run_control_loop([this, torque_limit](){
         float torque_setpoint;
-        if (!controller_.update(&torque_setpoint))
+        // Note that all estimators are updated in the loop prefix in run_control_loop
+        if (!controller_.update(&torque_setpoint, torque_limit))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
 
-        float phase_vel = (2*M_PI) * encoder_.vel_estimate_ * motor_.config_.pole_pairs;
-        if (!motor_.update(torque_setpoint, encoder_.phase_, phase_vel))
+        if (gearbox_.encoder_is_scaled()) {
+            torque_ = torque_setpoint / gearbox_.torque_mul_ratio();
+            phase_ = sensorless_estimator_.phase_;
+            phase_vel_ = sensorless_estimator_.vel_estimate_erad_;
+        } else {
+            torque_ = torque_setpoint;
+            phase_ = encoder_.phase_;
+            phase_vel_ = encoder_.vel_estimate_ * motor_.elec_rad_per_revolution();
+        }
+        if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_
 
         return true;
@@ -406,14 +425,25 @@ bool Axis::run_homing() {
     // Avoid integrator windup issues
     controller_.vel_integrator_torque_ = 0.0f;
 
-    run_control_loop([this](){
-        // Note that all estimators are updated in the loop prefix in run_control_loop
+    // Calculate torque limit for axis
+    float torque_limit = motor_.max_available_torque();
+    if (gearbox_.encoder_is_scaled()) {
+        torque_limit *= gearbox_.torque_mul_ratio();
+    }
+    run_control_loop([this, torque_limit](){
         float torque_setpoint;
-        if (!controller_.update(&torque_setpoint))
+        // Note that all estimators are updated in the loop prefix in run_control_loop
+        if (!controller_.update(&torque_setpoint, torque_limit))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
 
-        float phase_vel = (2*M_PI) * encoder_.vel_estimate_ * motor_.config_.pole_pairs;
-        if (!motor_.update(torque_setpoint, encoder_.phase_, phase_vel))
+        if (gearbox_.encoder_is_scaled()) {
+            torque_ = torque_setpoint / gearbox_.torque_mul_ratio();
+        } else {
+            torque_ = torque_setpoint;
+        }
+        phase_ = encoder_.phase_;
+        phase_vel_ = encoder_.vel_estimate_ * motor_.elec_rad_per_revolution();
+        if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_
 
         return !min_endstop_.get_state();
@@ -435,14 +465,20 @@ bool Axis::run_homing() {
     controller_.input_vel_ = 0.0f;
     controller_.input_torque_ = 0.0f;
 
-    run_control_loop([this](){
-        // Note that all estimators are updated in the loop prefix in run_control_loop
+    run_control_loop([this, torque_limit](){
         float torque_setpoint;
-        if (!controller_.update(&torque_setpoint))
+        // Note that all estimators are updated in the loop prefix in run_control_loop
+        if (!controller_.update(&torque_setpoint, torque_limit))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
 
-        float phase_vel = (2*M_PI) * encoder_.vel_estimate_ * motor_.config_.pole_pairs;
-        if (!motor_.update(torque_setpoint, encoder_.phase_, phase_vel))
+        if (gearbox_.encoder_is_scaled()) {
+            torque_ = torque_setpoint / gearbox_.torque_mul_ratio();
+        } else {
+            torque_ = torque_setpoint;
+        }
+        phase_ = encoder_.phase_;
+        phase_vel_ = encoder_.vel_estimate_ * motor_.elec_rad_per_revolution();
+        if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_
 
         return !controller_.trajectory_done_;
@@ -555,7 +591,7 @@ void Axis::run_state_machine_loop() {
                 if (status) {
                     // call to controller.reset() that happend when arming means that vel_setpoint
                     // is zeroed. So we make the setpoint the spinup target for smooth transition.
-                    controller_.vel_setpoint_ = config_.sensorless_ramp.vel / (2.0f * M_PI * motor_.config_.pole_pairs);
+                    controller_.vel_setpoint_ = config_.sensorless_ramp.vel / motor_.elec_rad_per_revolution();
                     status = run_sensorless_control_loop();
                 }
             } break;

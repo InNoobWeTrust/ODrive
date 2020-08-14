@@ -347,6 +347,7 @@ interfaces:
               ramp_distance: float32
               accel: float32
               vel: float32
+              finish_distance: float32
           sensorless_ramp: LockinConfig
           general_lockin: LockinConfig
           can_node_id:
@@ -357,12 +358,16 @@ interfaces:
       fet_thermistor: OnboardThermistorCurrentLimiter
       motor_thermistor: OffboardThermistorCurrentLimiter
       motor: Motor
+      gearbox: Gearbox
       controller: Controller
       encoder: Encoder
       sensorless_estimator: SensorlessEstimator
       trap_traj: TrapezoidalTrajectory
       min_endstop: Endstop
       max_endstop: Endstop
+      phase: float32
+      phase_vel: float32
+      torque: float32
     functions:
       watchdog_feed:
         doc: Feed the watchdog to prevent watchdog timeouts.
@@ -393,6 +398,17 @@ interfaces:
       finish_on_vel: bool
       finish_on_distance: bool
       finish_on_enc_idx: bool
+
+  ODrive.Gearbox:
+    c_is_class: True
+    attributes:
+      config:
+        c_is_class: False
+        attributes:
+          enabled: bool
+          gears_in: int32
+          gears_out: int32
+          mount_point: MountPoint
 
   ODrive.ThermistorCurrentLimiter:
     c_is_class: False
@@ -646,6 +662,8 @@ interfaces:
       pos_setpoint: readonly float32
       vel_setpoint: readonly float32
       torque_setpoint: readonly float32
+      pos_err: readonly float32
+      vel_err: readonly float32
       trajectory_done: readonly bool
       vel_integrator_torque: float32
       anticogging_valid: bool
@@ -1040,3 +1058,8 @@ valuetypes:
       #LowCurrent: # not implemented
       Gimbal: {value: 2}
       Acim:
+
+  ODrive.Gearbox.MountPoint:
+    values:
+      Between:
+      Outward:

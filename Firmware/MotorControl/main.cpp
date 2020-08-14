@@ -15,6 +15,7 @@ Encoder::Config_t encoder_configs[AXIS_COUNT];
 SensorlessEstimator::Config_t sensorless_configs[AXIS_COUNT];
 Controller::Config_t controller_configs[AXIS_COUNT];
 Motor::Config_t motor_configs[AXIS_COUNT];
+Gearbox::Config_t gearbox_configs[AXIS_COUNT];
 OnboardThermistorCurrentLimiter::Config_t fet_thermistor_configs[AXIS_COUNT];
 OffboardThermistorCurrentLimiter::Config_t motor_thermistor_configs[AXIS_COUNT];
 Axis::Config_t axis_configs[AXIS_COUNT];
@@ -33,6 +34,7 @@ typedef Config<
     SensorlessEstimator::Config_t[AXIS_COUNT],
     Controller::Config_t[AXIS_COUNT],
     Motor::Config_t[AXIS_COUNT],
+    Gearbox::Config_t[AXIS_COUNT],
     OnboardThermistorCurrentLimiter::Config_t[AXIS_COUNT],
     OffboardThermistorCurrentLimiter::Config_t[AXIS_COUNT],
     TrapezoidalTrajectory::Config_t[AXIS_COUNT],
@@ -48,6 +50,7 @@ void ODrive::save_configuration(void) {
             &sensorless_configs,
             &controller_configs,
             &motor_configs,
+            &gearbox_configs,
             &fet_thermistor_configs,
             &motor_thermistor_configs,
             &trap_configs,
@@ -70,6 +73,7 @@ extern "C" int load_configuration(void) {
                 &sensorless_configs,
                 &controller_configs,
                 &motor_configs,
+                &gearbox_configs,
                 &fet_thermistor_configs,
                 &motor_thermistor_configs,
                 &trap_configs,
@@ -84,6 +88,7 @@ extern "C" int load_configuration(void) {
             sensorless_configs[i] = SensorlessEstimator::Config_t();
             controller_configs[i] = Controller::Config_t();
             motor_configs[i] = Motor::Config_t();
+            gearbox_configs[i] = Gearbox::Config_t();
             fet_thermistor_configs[i] = OnboardThermistorCurrentLimiter::Config_t();
             motor_thermistor_configs[i] = OffboardThermistorCurrentLimiter::Config_t();
             trap_configs[i] = TrapezoidalTrajectory::Config_t();
@@ -191,17 +196,20 @@ extern "C" int construct_objects(){
         Motor *motor = new Motor(hw_configs[i].motor_config,
                                  hw_configs[i].gate_driver_config,
                                  motor_configs[i]);
+        Gearbox *gearbox = new Gearbox(gearbox_configs[i]);
         TrapezoidalTrajectory *trap = new TrapezoidalTrajectory(trap_configs[i]);
         Endstop *min_endstop = new Endstop(min_endstop_configs[i]);
         Endstop *max_endstop = new Endstop(max_endstop_configs[i]);
         axes[i] = new Axis(i, hw_configs[i].axis_config, axis_configs[i],
                 *encoder, *sensorless_estimator, *controller, *fet_thermistor,
-                *motor_thermistor, *motor, *trap, *min_endstop, *max_endstop);
+                *motor_thermistor, *motor, *gearbox, *trap, *min_endstop,
+                *max_endstop);
 
         controller_configs[i].parent = controller;
         encoder_configs[i].parent = encoder;
         motor_thermistor_configs[i].parent = motor_thermistor;
         motor_configs[i].parent = motor;
+        gearbox_configs[i].parent = gearbox;
         min_endstop_configs[i].parent = min_endstop;
         max_endstop_configs[i].parent = max_endstop;
         axis_configs[i].parent = axes[i];

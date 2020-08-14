@@ -57,6 +57,7 @@ public:
         input_pos_updated_ = true;
     }
 
+    void use_sensorless_estimator();
     bool select_encoder(size_t encoder_num);
 
     // Trajectory-Planned control
@@ -68,7 +69,7 @@ public:
     bool anticogging_calibration(float pos_estimate, float vel_estimate);
 
     void update_filter_gains();
-    bool update(float* torque_setpoint);
+    bool update(float* torque_setpoint, float torque_limit);
 
     Config_t& config_;
     Axis* axis_ = nullptr; // set by Axis constructor
@@ -94,6 +95,9 @@ public:
     float input_torque_ = 0.0f;  // [Nm]
     float input_filter_kp_ = 0.0f;
     float input_filter_ki_ = 0.0f;
+
+    float pos_err_ = 0.0f;      // [turns]
+    float vel_err_ = 0.0f;      // [turn/s]
 
     bool input_pos_updated_ = false;
     

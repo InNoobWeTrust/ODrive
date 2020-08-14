@@ -80,6 +80,7 @@ public:
             OnboardThermistorCurrentLimiter& fet_thermistor,
             OffboardThermistorCurrentLimiter& motor_thermistor,
             Motor& motor,
+            Gearbox& gearbox,
             TrapezoidalTrajectory& trap,
             Endstop& min_endstop,
             Endstop& max_endstop);
@@ -181,6 +182,10 @@ public:
         }
     }
 
+    float phase_ = 0.0f;
+    float phase_vel_ = 0.0f;
+    float torque_ = 0.0f;
+
     bool run_lockin_spin(const LockinConfig_t &lockin_config);
     bool run_sensorless_control_loop();
     bool run_closed_loop_control_loop();
@@ -203,6 +208,7 @@ public:
     OnboardThermistorCurrentLimiter& fet_thermistor_;
     OffboardThermistorCurrentLimiter& motor_thermistor_;
     Motor& motor_;
+    Gearbox& gearbox_;
     TrapezoidalTrajectory& trap_traj_;
     Endstop& min_endstop_;
     Endstop& max_endstop_;

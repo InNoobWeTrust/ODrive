@@ -202,6 +202,7 @@ enum TimingLog_t {
 #include <gpio_utils.hpp>
 #include <low_level.h>
 #include <motor.hpp>
+#include <gearbox.hpp>
 #include <encoder.hpp>
 #include <sensorless_estimator.hpp>
 #include <controller.hpp>

@@ -53,6 +53,10 @@ MOTOR_TYPE_HIGH_CURRENT                  = 0
 MOTOR_TYPE_GIMBAL                        = 2
 MOTOR_TYPE_ACIM                          = 3
 
+# ODrive.Gearbox.MountPoint
+MOUNT_POINT_BETWEEN                      = 0
+MOUNT_POINT_OUTWARD                      = 1
+
 # ODrive.Can.Error
 CAN_ERROR_NONE                           = 0x00000000
 CAN_ERROR_DUPLICATE_CAN_IDS              = 0x00000001

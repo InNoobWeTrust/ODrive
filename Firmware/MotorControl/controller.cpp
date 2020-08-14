@@ -2,8 +2,6 @@
 #include "odrive_main.h"
 #include <algorithm>
 
-#include <algorithm>
-
 Controller::Controller(Config_t& config) :
     config_(config)
 {
@@ -114,7 +112,7 @@ static float limitVel(const float vel_limit, const float vel_estimate, const flo
     return std::clamp(torque, Tmin, Tmax);
 }
 
-bool Controller::update(float* torque_setpoint_output) {
+bool Controller::update(float* torque_setpoint_output, float torque_limit) {
     float* pos_estimate_linear = (pos_estimate_valid_src_ && *pos_estimate_valid_src_)
             ? pos_estimate_linear_src_ : nullptr;
     float* pos_estimate_circular = (pos_estimate_valid_src_ && *pos_estimate_valid_src_)
@@ -222,8 +220,6 @@ bool Controller::update(float* torque_setpoint_output) {
     float gain_scheduling_multiplier = 1.0f;
     float vel_des = vel_setpoint_;
     if (config_.control_mode >= CONTROL_MODE_POSITION_CONTROL) {
-        float pos_err;
-
         if (config_.circular_setpoints) {
             if(!pos_estimate_circular) {
                 set_error(ERROR_INVALID_ESTIMATE);
@@ -232,19 +228,19 @@ bool Controller::update(float* torque_setpoint_output) {
             // Keep pos setpoint from drifting
             pos_setpoint_ = fmodf_pos(pos_setpoint_, *pos_wrap_src_);
             // Circular delta
-            pos_err = pos_setpoint_ - *pos_estimate_circular;
-            pos_err = wrap_pm(pos_err, 0.5f * *pos_wrap_src_);
+            float err = pos_setpoint_ - *pos_estimate_circular;
+            pos_err_ = wrap_pm(err, 0.5f * *pos_wrap_src_);
         } else {
             if(!pos_estimate_linear) {
                 set_error(ERROR_INVALID_ESTIMATE);
                 return false;
             }
-            pos_err = pos_setpoint_ - *pos_estimate_linear;
+            pos_err_ = pos_setpoint_ - axis_->encoder_.pos_estimate_;
         }
 
-        vel_des += config_.pos_gain * pos_err;
+        vel_des += config_.pos_gain * pos_err_;
         // V-shaped gain shedule based on position error
-        float abs_pos_err = std::abs(pos_err);
+        float abs_pos_err = std::abs(pos_err_);
         if (config_.enable_gain_scheduling && abs_pos_err <= config_.gain_scheduling_width) {
             gain_scheduling_multiplier = abs_pos_err / config_.gain_scheduling_width;
         }
@@ -293,15 +289,14 @@ bool Controller::update(float* torque_setpoint_output) {
         torque += config_.anticogging.cogging_map[std::clamp(mod((int)anticogging_pos, 3600), 0, 3600)];
     }
 
-    float v_err = 0.0f;
     if (config_.control_mode >= CONTROL_MODE_VELOCITY_CONTROL) {
         if (!vel_estimate_src) {
             set_error(ERROR_INVALID_ESTIMATE);
             return false;
         }
 
-        v_err = vel_des - *vel_estimate_src;
-        torque += (vel_gain * gain_scheduling_multiplier) * v_err;
+        vel_err_ = vel_des - *vel_estimate_src;
+        torque += (vel_gain * gain_scheduling_multiplier) * vel_err_;
 
         // Velocity integral action before limiting
         torque += vel_integrator_torque_;
@@ -318,14 +313,13 @@ bool Controller::update(float* torque_setpoint_output) {
 
     // Torque limiting
     bool limited = false;
-    float Tlim = axis_->motor_.max_available_torque();
-    if (torque > Tlim) {
+    if (torque > torque_limit) {
         limited = true;
-        torque = Tlim;
+        torque = torque_limit;
     }
-    if (torque < -Tlim) {
+    if (torque < -torque_limit) {
         limited = true;
-        torque = -Tlim;
+        torque = -torque_limit;
     }
 
     // Velocity integrator (behaviour dependent on limiting)
@@ -337,7 +331,7 @@ bool Controller::update(float* torque_setpoint_output) {
             // TODO make decayfactor configurable
             vel_integrator_torque_ *= 0.99f;
         } else {
-            vel_integrator_torque_ += ((vel_integrator_gain * gain_scheduling_multiplier) * current_meas_period) * v_err;
+            vel_integrator_torque_ += ((vel_integrator_gain * gain_scheduling_multiplier) * current_meas_period) * vel_err_;
         }
     }
 

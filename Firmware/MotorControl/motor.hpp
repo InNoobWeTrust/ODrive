@@ -92,6 +92,9 @@ public:
     bool check_DRV_fault();
     void set_error(Error error);
     bool do_checks();
+    float elec_rad_per_revolution() {
+        return config_.pole_pairs * 2 * M_PI;
+    }
     float effective_current_lim();
     float max_available_torque();
     void log_timing(TimingLog_t log_idx);

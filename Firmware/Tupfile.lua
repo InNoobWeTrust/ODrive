@@ -196,6 +196,7 @@ build{
         'MotorControl/endstop.cpp',
         'MotorControl/controller.cpp',
         'MotorControl/sensorless_estimator.cpp',
+        'MotorControl/gearbox.cpp',
         'MotorControl/trapTraj.cpp',
         'MotorControl/main.cpp',
         'communication/can_simple.cpp',
