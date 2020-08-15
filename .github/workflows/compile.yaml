@@ -2,10 +2,10 @@ name: Tests
 
 on:
   pull_request:
-    branches: [master, devel]
+    branches: [master, devel, gearbox_support]
     tags: ['fw-v*']
   push:
-    branches: [master, devel]
+    branches: [master, devel, gearbox_support]
     tags: ['fw-v*']
 
 jobs:
@@ -107,6 +107,10 @@ jobs:
           cd ${{ github.workspace }}/Firmware
           mv tup_build.sh tup_build.bat # in reality this is a .bat script on windows
           .\tup_build.bat
+
+      - uses: actions/upload-artifact@v2
+        with:
+          path: ./Firmware/build
 
   #code-checks:
   #  runs-on: ubuntu-latest
