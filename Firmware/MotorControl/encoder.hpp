@@ -33,6 +33,7 @@ public:
                                     // state as soon as the index is found.
         bool zero_count_on_find_idx = true;
         int32_t cpr = (2048 * 4);   // Default resolution of CUI-AMT102 encoder,
+        float gearbox_ratio = 1.0; // Ratio between motor and gearbox output
         int32_t offset = 0;        // Offset between encoder count and rotor electrical phase
         float offset_float = 0.0f; // Sub-count phase alignment offset
         bool enable_phase_interpolation = true; // Use velocity to interpolate inside the count state
@@ -120,6 +121,7 @@ public:
                     [](void* ctx) { static_cast<Encoder*>(ctx)->check_pre_calibrated(); }, this),
                 make_protocol_property("zero_count_on_find_idx", &config_.zero_count_on_find_idx),
                 make_protocol_property("cpr", &config_.cpr),
+                make_protocol_property("gearbox_ratio", &config_.gearbox_ratio),
                 make_protocol_property("offset", &config_.offset),
                 make_protocol_property("offset_float", &config_.offset_float),
                 make_protocol_property("enable_phase_interpolation", &config_.enable_phase_interpolation),

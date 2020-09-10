@@ -296,7 +296,7 @@ bool Axis::run_closed_loop_control_loop() {
         float current_setpoint;
         if (!controller_.update(encoder_.pos_estimate_, encoder_.vel_estimate_, &current_setpoint))
             return error_ |= ERROR_CONTROLLER_FAILED, false; //TODO: Make controller.set_error
-        float phase_vel = 2*M_PI * encoder_.vel_estimate_ / (float)encoder_.config_.cpr * motor_.config_.pole_pairs;
+        float phase_vel = 2*M_PI * encoder_.vel_estimate_ * encoder_.config_.gearbox_ratio / (float)encoder_.config_.cpr * motor_.config_.pole_pairs;
         if (!motor_.update(current_setpoint, encoder_.phase_, phase_vel))
             return false; // set_error should update axis.error_
         return true;

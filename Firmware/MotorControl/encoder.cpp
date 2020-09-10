@@ -227,7 +227,7 @@ bool Encoder::run_offset_calibration() {
 
     //TODO avoid recomputing elec_rad_per_enc every time
     // Check CPR
-    float elec_rad_per_enc = axis_->motor_.config_.pole_pairs * 2 * M_PI * (1.0f / (float)(config_.cpr));
+    float elec_rad_per_enc = axis_->motor_.config_.pole_pairs * 2 * M_PI * config_.gearbox_ratio * (1.0f / (float)(config_.cpr));
     float expected_encoder_delta = config_.calib_scan_distance / elec_rad_per_enc;
     calib_scan_response_ = fabsf(shadow_count_-init_enc_val);
     if(fabsf(calib_scan_response_ - expected_encoder_delta)/expected_encoder_delta > config_.calib_range)
@@ -381,7 +381,7 @@ bool Encoder::update() {
 
     //// compute electrical phase
     //TODO avoid recomputing elec_rad_per_enc every time
-    float elec_rad_per_enc = axis_->motor_.config_.pole_pairs * 2 * M_PI * (1.0f / (float)(config_.cpr));
+    float elec_rad_per_enc = axis_->motor_.config_.pole_pairs * 2 * M_PI * config_.gearbox_ratio * (1.0f / (float)(config_.cpr));
     float ph = elec_rad_per_enc * (interpolated_enc - config_.offset_float);
     // ph = fmodf(ph, 2*M_PI);
     phase_ = wrap_pm_pi(ph);
