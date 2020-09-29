@@ -528,7 +528,7 @@ bool Encoder::update() {
     pos_cpr_counts_ = fmodf_pos(pos_cpr_counts_, (float)(config_.cpr));
     vel_estimate_counts_ += current_meas_period * pll_ki_ * delta_pos_cpr_counts;
     bool snap_to_zero_vel = false;
-    if (std::abs(vel_estimate_counts_) < 0.5f * current_meas_period * pll_ki_) {
+    if (!axis_->gearbox_.encoder_is_scaled() && std::abs(vel_estimate_counts_) < 0.5f * current_meas_period * pll_ki_) {
         vel_estimate_counts_ = 0.0f;  //align delta-sigma on zero to prevent jitter
         snap_to_zero_vel = true;
     }
