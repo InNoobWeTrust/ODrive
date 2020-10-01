@@ -565,10 +565,13 @@ bool Encoder::update() {
     //// compute electrical phase
     //TODO avoid recomputing elec_rad_per_enc every time
     float elec_rad_per_enc = axis_->motor_.elec_rad_per_revolution() / (float)config_.cpr;
+    float ph;
     if (axis_->gearbox_.encoder_is_scaled()) {
         elec_rad_per_enc *= axis_->gearbox_.pos_bwd_ratio();
+        ph = elec_rad_per_enc * pos_estimate_;
+    } else {
+        ph = elec_rad_per_enc * (interpolated_enc - config_.offset_float);
     }
-    float ph = elec_rad_per_enc * (interpolated_enc - config_.offset_float);
     // ph = fmodf(ph, 2*M_PI);
     phase_ = wrap_pm_pi(ph);
 

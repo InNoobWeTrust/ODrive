@@ -408,6 +408,10 @@ interfaces:
           enabled: bool
           gears_in: int32
           gears_out: int32
+          efficiency:
+            type: float32
+            unit: \%
+            c_setter: set_efficiency
           mount_point: MountPoint
 
   ODrive.ThermistorCurrentLimiter:
@@ -906,12 +910,6 @@ valuetypes:
            go to true.
       ClosedLoopControl:
         brief: Run closed loop control.
-        doc: |
-           * The action depends on the `controller.config.control_mode`.
-           * Can only be entered if the motor is calibrated
-           (`motor.is_calibrated`) and the encoder is ready (`encoder.is_ready`).
-      HybridLoopControl:
-        brief: Run hybrid loop control. Pos by encoder, vel by sensorless.
         doc: |
            * The action depends on the `controller.config.control_mode`.
            * Can only be entered if the motor is calibrated

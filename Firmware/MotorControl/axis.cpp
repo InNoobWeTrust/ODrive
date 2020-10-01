@@ -239,6 +239,7 @@ void Axis::sync_phase(bool sensored) {
         phase_ = encoder_.phase_;
         phase_vel_ = encoder_.vel_estimate_ * motor_.elec_rad_per_revolution();
     } else {
+        //phase_ = encoder_.phase_;
         phase_ = sensorless_estimator_.phase_;
         //phase_vel_ = encoder_.vel_estimate_ * motor_.elec_rad_per_revolution() * gearbox_.pos_bwd_ratio();
         phase_vel_ = sensorless_estimator_.vel_estimate_erad_;
@@ -328,8 +329,9 @@ bool Axis::run_sensorless_control_loop() {
     return check_for_errors();
 }
 
-bool Axis::run_closed_loop_control_loop(bool hybrid_mode) {
-    if (!controller_.select_encoder(controller_.config_.load_encoder_axis, hybrid_mode)) {
+bool Axis::run_closed_loop_control_loop() {
+    if (!controller_.select_encoder(controller_.config_.load_encoder_axis, false)) {
+    //if (!controller_.select_encoder(controller_.config_.load_encoder_axis, gearbox_.encoder_is_scaled())) {
         return error_ |= ERROR_CONTROLLER_FAILED, false;
     }
 
@@ -362,7 +364,7 @@ bool Axis::run_closed_loop_control_loop(bool hybrid_mode) {
         // Calculate torque limit for axis
         float torque_limit = motor_.max_available_torque();
         if (gearbox_.encoder_is_scaled()) {
-            torque_limit *= gearbox_.torque_fwd_ratio();
+            torque_limit = gearbox_.torque_fwd(torque_limit);
         }
 
         float torque_setpoint;
@@ -371,7 +373,7 @@ bool Axis::run_closed_loop_control_loop(bool hybrid_mode) {
             return error_ |= ERROR_CONTROLLER_FAILED, false;
 
         if (gearbox_.encoder_is_scaled()) {
-            torque_ = torque_setpoint * gearbox_.torque_bwd_ratio();
+            torque_ = gearbox_.torque_bwd(torque_setpoint);
         } else {
             torque_ = torque_setpoint;
         }
@@ -440,7 +442,7 @@ bool Axis::run_homing() {
         // Calculate torque limit for axis
         float torque_limit = motor_.max_available_torque();
         if (gearbox_.encoder_is_scaled()) {
-            torque_limit *= gearbox_.torque_fwd_ratio();
+            torque_limit = gearbox_.torque_fwd(torque_limit);
         }
 
         float torque_setpoint;
@@ -449,7 +451,7 @@ bool Axis::run_homing() {
             return error_ |= ERROR_CONTROLLER_FAILED, false;
 
         if (gearbox_.encoder_is_scaled()) {
-            torque_ = torque_setpoint * gearbox_.torque_bwd_ratio();
+            torque_ = gearbox_.torque_bwd(torque_setpoint);
         } else {
             torque_ = torque_setpoint;
         }
@@ -482,7 +484,7 @@ bool Axis::run_homing() {
         // Calculate torque limit for axis
         float torque_limit = motor_.max_available_torque();
         if (gearbox_.encoder_is_scaled()) {
-            torque_limit *= gearbox_.torque_fwd_ratio();
+            torque_limit = gearbox_.torque_fwd(torque_limit);
         }
 
         float torque_setpoint;
@@ -491,7 +493,7 @@ bool Axis::run_homing() {
             return error_ |= ERROR_CONTROLLER_FAILED, false;
 
         if (gearbox_.encoder_is_scaled()) {
-            torque_ = torque_setpoint * gearbox_.torque_bwd_ratio();
+            torque_ = gearbox_.torque_bwd(torque_setpoint);
         } else {
             torque_ = torque_setpoint;
         }
@@ -622,16 +624,7 @@ void Axis::run_state_machine_loop() {
                 if (!encoder_.is_ready_)
                     goto invalid_state_label;
                 watchdog_feed();
-                status = run_closed_loop_control_loop(false);
-            } break;
-
-            case AXIS_STATE_HYBRID_LOOP_CONTROL: {
-                if (!motor_.is_calibrated_ || motor_.config_.direction==0)
-                    goto invalid_state_label;
-                if (!encoder_.is_ready_)
-                    goto invalid_state_label;
-                watchdog_feed();
-                status = run_closed_loop_control_loop(true);
+                status = run_closed_loop_control_loop();
             } break;
 
             case AXIS_STATE_IDLE: {

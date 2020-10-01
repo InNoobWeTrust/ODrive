@@ -249,7 +249,7 @@ bool Controller::update(float* torque_setpoint_output, float torque_limit) {
                 set_error(ERROR_INVALID_ESTIMATE);
                 return false;
             }
-            pos_err_ = pos_setpoint_ - axis_->encoder_.pos_estimate_;
+            pos_err_ = pos_setpoint_ - *pos_estimate_linear;
         }
 
         vel_des += config_.pos_gain * pos_err_;
