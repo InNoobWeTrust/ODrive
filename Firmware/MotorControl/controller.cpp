@@ -24,16 +24,30 @@ void Controller::set_error(Error error) {
 // Command Handling
 //--------------------------------
 
+void Controller::use_sensorless_estimator() {
+    hybrid_mode = false;
+    pos_estimate_linear_src_ = nullptr;
+    pos_estimate_circular_src_ = nullptr;
+    pos_estimate_valid_src_ = nullptr;
+    vel_estimate_src_ = &axis_->sensorless_estimator_.vel_estimate_;
+    vel_estimate_valid_src_ = &axis_->sensorless_estimator_.vel_estimate_valid_;
+}
 
-bool Controller::select_encoder(size_t encoder_num) {
+bool Controller::select_encoder(size_t encoder_num, bool hybrid_mode) {
+    this->hybrid_mode = hybrid_mode;
     if (encoder_num < AXIS_COUNT) {
         Axis* ax = axes[encoder_num];
         pos_estimate_circular_src_ = &ax->encoder_.pos_circular_;
         pos_wrap_src_ = &config_.circular_setpoint_range;
         pos_estimate_linear_src_ = &ax->encoder_.pos_estimate_;
         pos_estimate_valid_src_ = &ax->encoder_.pos_estimate_valid_;
-        vel_estimate_src_ = &ax->encoder_.vel_estimate_;
-        vel_estimate_valid_src_ = &ax->encoder_.vel_estimate_valid_;
+        if (hybrid_mode) {
+            vel_estimate_src_ = &axis_->sensorless_estimator_.vel_estimate_;
+            vel_estimate_valid_src_ = &axis_->sensorless_estimator_.vel_estimate_valid_;
+        } else {
+            vel_estimate_src_ = &ax->encoder_.vel_estimate_;
+            vel_estimate_valid_src_ = &ax->encoder_.vel_estimate_valid_;
+        }
         return true;
     } else {
         return set_error(Controller::ERROR_INVALID_LOAD_ENCODER), false;
@@ -248,6 +262,9 @@ bool Controller::update(float* torque_setpoint_output, float torque_limit) {
 
     // Velocity limiting
     float vel_lim = config_.vel_limit;
+    if (hybrid_mode && axis_->gearbox_.encoder_is_scaled()) {
+        vel_lim *= axis_->gearbox_.pos_bwd_ratio();
+    }
     if (config_.enable_vel_limit) {
         vel_des = std::clamp(vel_des, -vel_lim, vel_lim);
     }
@@ -295,7 +312,11 @@ bool Controller::update(float* torque_setpoint_output, float torque_limit) {
             return false;
         }
 
-        vel_err_ = vel_des - *vel_estimate_src;
+        if (hybrid_mode && axis_->gearbox_.encoder_is_scaled()) {
+            vel_err_ = vel_des - *vel_estimate_src * axis_->gearbox_.pos_fwd_ratio();
+        } else {
+            vel_err_ = vel_des - *vel_estimate_src;
+        }
         torque += (vel_gain * gain_scheduling_multiplier) * vel_err_;
 
         // Velocity integral action before limiting
@@ -308,7 +329,7 @@ bool Controller::update(float* torque_setpoint_output, float torque_limit) {
             set_error(ERROR_INVALID_ESTIMATE);
             return false;
         }
-        torque = limitVel(config_.vel_limit, *vel_estimate_src, vel_gain, torque);
+        torque = limitVel(vel_lim, *vel_estimate_src, vel_gain, torque);
     }
 
     // Torque limiting

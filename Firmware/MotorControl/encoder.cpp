@@ -250,7 +250,7 @@ bool Encoder::run_offset_calibration() {
     // Check CPR
     float elec_rad_per_enc = axis_->motor_.elec_rad_per_revolution()  / (float)config_.cpr;
     if (axis_->gearbox_.encoder_is_scaled()) {
-        elec_rad_per_enc /= axis_->gearbox_.pos_mul_ratio();
+        elec_rad_per_enc *= axis_->gearbox_.pos_bwd_ratio();
     }
     float expected_encoder_delta = config_.calib_scan_distance / elec_rad_per_enc;
     calib_scan_response_ = std::abs(shadow_count_ - init_enc_val);
@@ -566,7 +566,7 @@ bool Encoder::update() {
     //TODO avoid recomputing elec_rad_per_enc every time
     float elec_rad_per_enc = axis_->motor_.elec_rad_per_revolution() / (float)config_.cpr;
     if (axis_->gearbox_.encoder_is_scaled()) {
-        elec_rad_per_enc /= axis_->gearbox_.pos_mul_ratio();
+        elec_rad_per_enc *= axis_->gearbox_.pos_bwd_ratio();
     }
     float ph = elec_rad_per_enc * (interpolated_enc - config_.offset_float);
     // ph = fmodf(ph, 2*M_PI);

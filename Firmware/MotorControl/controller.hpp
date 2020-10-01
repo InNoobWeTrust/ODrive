@@ -57,8 +57,9 @@ public:
         input_pos_updated_ = true;
     }
 
+    bool hybrid_mode = false;
     void use_sensorless_estimator();
-    bool select_encoder(size_t encoder_num);
+    bool select_encoder(size_t encoder_num, bool hybrid_mode);
 
     // Trajectory-Planned control
     void move_to_pos(float goal_point);

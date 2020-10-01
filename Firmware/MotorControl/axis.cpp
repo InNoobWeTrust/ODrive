@@ -231,6 +231,20 @@ bool Axis::watchdog_check() {
     }
 }
 
+void Axis::sync_phase(bool sensored) {
+    if (!sensored) {
+        phase_ = sensorless_estimator_.phase_;
+        phase_vel_ = sensorless_estimator_.vel_estimate_erad_;
+    } else if (!gearbox_.encoder_is_scaled()) {
+        phase_ = encoder_.phase_;
+        phase_vel_ = encoder_.vel_estimate_ * motor_.elec_rad_per_revolution();
+    } else {
+        phase_ = sensorless_estimator_.phase_;
+        //phase_vel_ = encoder_.vel_estimate_ * motor_.elec_rad_per_revolution() * gearbox_.pos_bwd_ratio();
+        phase_vel_ = sensorless_estimator_.vel_estimate_erad_;
+    }
+}
+
 bool Axis::run_lockin_spin(const LockinConfig_t &lockin_config) {
     // Spiral up current for softer rotor lock-in
     lockin_state_ = LOCKIN_STATE_RAMP;
@@ -298,18 +312,15 @@ bool Axis::run_lockin_spin(const LockinConfig_t &lockin_config) {
 
 // Note run_sensorless_control_loop and run_closed_loop_control_loop are very similar and differ only in where we get the estimate from.
 bool Axis::run_sensorless_control_loop() {
-    controller_.pos_estimate_linear_src_ = nullptr;
-    controller_.pos_estimate_circular_src_ = nullptr;
-    controller_.pos_estimate_valid_src_ = nullptr;
-    controller_.vel_estimate_src_ = &sensorless_estimator_.vel_estimate_;
-    controller_.vel_estimate_valid_src_ = &sensorless_estimator_.vel_estimate_valid_;
+    controller_.use_sensorless_estimator();
 
     run_control_loop([this](){
         // Note that all estimators are updated in the loop prefix in run_control_loop
         if (!controller_.update(&torque_, motor_.max_available_torque()))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
-        phase_ = sensorless_estimator_.phase_;
-        phase_vel_ = sensorless_estimator_.vel_estimate_erad_;
+
+        sync_phase(false);
+
         if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_
         return true;
@@ -317,8 +328,8 @@ bool Axis::run_sensorless_control_loop() {
     return check_for_errors();
 }
 
-bool Axis::run_closed_loop_control_loop() {
-    if (!controller_.select_encoder(controller_.config_.load_encoder_axis)) {
+bool Axis::run_closed_loop_control_loop(bool hybrid_mode) {
+    if (!controller_.select_encoder(controller_.config_.load_encoder_axis, hybrid_mode)) {
         return error_ |= ERROR_CONTROLLER_FAILED, false;
     }
 
@@ -351,22 +362,22 @@ bool Axis::run_closed_loop_control_loop() {
         // Calculate torque limit for axis
         float torque_limit = motor_.max_available_torque();
         if (gearbox_.encoder_is_scaled()) {
-            torque_limit *= gearbox_.torque_mul_ratio();
+            torque_limit *= gearbox_.torque_fwd_ratio();
         }
+
         float torque_setpoint;
         // Note that all estimators are updated in the loop prefix in run_control_loop
         if (!controller_.update(&torque_setpoint, torque_limit))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
 
         if (gearbox_.encoder_is_scaled()) {
-            torque_ = torque_setpoint / gearbox_.torque_mul_ratio();
-            phase_ = sensorless_estimator_.phase_;
-            phase_vel_ = sensorless_estimator_.vel_estimate_erad_;
+            torque_ = torque_setpoint * gearbox_.torque_bwd_ratio();
         } else {
             torque_ = torque_setpoint;
-            phase_ = encoder_.phase_;
-            phase_vel_ = encoder_.vel_estimate_ * motor_.elec_rad_per_revolution();
         }
+
+        sync_phase(true);
+
         if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_
 
@@ -399,7 +410,7 @@ bool Axis::run_homing() {
 
     homing_.is_homed = false;
 
-    if (!controller_.select_encoder(controller_.config_.load_encoder_axis)) {
+    if (!controller_.select_encoder(controller_.config_.load_encoder_axis, false)) {
         return error_ |= ERROR_CONTROLLER_FAILED, false;
     }
     
@@ -429,23 +440,22 @@ bool Axis::run_homing() {
         // Calculate torque limit for axis
         float torque_limit = motor_.max_available_torque();
         if (gearbox_.encoder_is_scaled()) {
-            torque_limit *= gearbox_.torque_mul_ratio();
+            torque_limit *= gearbox_.torque_fwd_ratio();
         }
+
         float torque_setpoint;
         // Note that all estimators are updated in the loop prefix in run_control_loop
         if (!controller_.update(&torque_setpoint, torque_limit))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
 
-        float ph_vel = encoder_.vel_estimate_ * motor_.elec_rad_per_revolution();
         if (gearbox_.encoder_is_scaled()) {
-            torque_ = torque_setpoint / gearbox_.torque_mul_ratio();
-            phase_ = sensorless_estimator_.phase_;
-            ph_vel /= gearbox_.pos_mul_ratio();
+            torque_ = torque_setpoint * gearbox_.torque_bwd_ratio();
         } else {
             torque_ = torque_setpoint;
-            phase_ = encoder_.phase_;
         }
-        phase_vel_ = ph_vel;
+
+        sync_phase(true);
+
         if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_
 
@@ -472,23 +482,22 @@ bool Axis::run_homing() {
         // Calculate torque limit for axis
         float torque_limit = motor_.max_available_torque();
         if (gearbox_.encoder_is_scaled()) {
-            torque_limit *= gearbox_.torque_mul_ratio();
+            torque_limit *= gearbox_.torque_fwd_ratio();
         }
+
         float torque_setpoint;
         // Note that all estimators are updated in the loop prefix in run_control_loop
         if (!controller_.update(&torque_setpoint, torque_limit))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
 
-        float ph_vel = encoder_.vel_estimate_ * motor_.elec_rad_per_revolution();
         if (gearbox_.encoder_is_scaled()) {
-            torque_ = torque_setpoint / gearbox_.torque_mul_ratio();
-            phase_ = sensorless_estimator_.phase_;
-            ph_vel /= gearbox_.pos_mul_ratio();
+            torque_ = torque_setpoint * gearbox_.torque_bwd_ratio();
         } else {
             torque_ = torque_setpoint;
-            phase_ = encoder_.phase_;
         }
-        phase_vel_ = ph_vel;
+
+        sync_phase(true);
+
         if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_
 
@@ -613,7 +622,16 @@ void Axis::run_state_machine_loop() {
                 if (!encoder_.is_ready_)
                     goto invalid_state_label;
                 watchdog_feed();
-                status = run_closed_loop_control_loop();
+                status = run_closed_loop_control_loop(false);
+            } break;
+
+            case AXIS_STATE_HYBRID_LOOP_CONTROL: {
+                if (!motor_.is_calibrated_ || motor_.config_.direction==0)
+                    goto invalid_state_label;
+                if (!encoder_.is_ready_)
+                    goto invalid_state_label;
+                watchdog_feed();
+                status = run_closed_loop_control_loop(true);
             } break;
 
             case AXIS_STATE_IDLE: {

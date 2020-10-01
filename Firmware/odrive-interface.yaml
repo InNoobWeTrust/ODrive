@@ -910,6 +910,12 @@ valuetypes:
            * The action depends on the `controller.config.control_mode`.
            * Can only be entered if the motor is calibrated
            (`motor.is_calibrated`) and the encoder is ready (`encoder.is_ready`).
+      HybridLoopControl:
+        brief: Run hybrid loop control. Pos by encoder, vel by sensorless.
+        doc: |
+           * The action depends on the `controller.config.control_mode`.
+           * Can only be entered if the motor is calibrated
+           (`motor.is_calibrated`) and the encoder is ready (`encoder.is_ready`).
       LockinSpin:
         brief: Run lockin spin.
         doc: |

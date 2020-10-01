@@ -25,7 +25,9 @@ public:
         return config_.enabled && MOUNT_POINT_BETWEEN == config_.mount_point;
     }
 
-    float torque_mul_ratio();
-    float pos_mul_ratio();
+    float torque_fwd_ratio();
+    float torque_bwd_ratio();
+    float pos_fwd_ratio();
+    float pos_bwd_ratio();
 };
 #endif /* __GEARBOX_HPP */

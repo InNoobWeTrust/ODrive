@@ -185,10 +185,11 @@ public:
     float phase_ = 0.0f;
     float phase_vel_ = 0.0f;
     float torque_ = 0.0f;
+    void sync_phase(bool sensored);
 
     bool run_lockin_spin(const LockinConfig_t &lockin_config);
     bool run_sensorless_control_loop();
-    bool run_closed_loop_control_loop();
+    bool run_closed_loop_control_loop(bool hybrid_mode);
     bool run_homing();
     bool run_idle_loop();
 
