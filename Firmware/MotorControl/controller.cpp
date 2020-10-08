@@ -24,36 +24,6 @@ void Controller::set_error(Error error) {
 // Command Handling
 //--------------------------------
 
-void Controller::use_sensorless_estimator() {
-    hybrid_mode = false;
-    pos_estimate_linear_src_ = nullptr;
-    pos_estimate_circular_src_ = nullptr;
-    pos_estimate_valid_src_ = nullptr;
-    vel_estimate_src_ = &axis_->sensorless_estimator_.vel_estimate_;
-    vel_estimate_valid_src_ = &axis_->sensorless_estimator_.vel_estimate_valid_;
-}
-
-bool Controller::select_encoder(size_t encoder_num, bool hybrid_mode) {
-    this->hybrid_mode = hybrid_mode;
-    if (encoder_num < AXIS_COUNT) {
-        Axis* ax = axes[encoder_num];
-        pos_estimate_circular_src_ = &ax->encoder_.pos_circular_;
-        pos_wrap_src_ = &config_.circular_setpoint_range;
-        pos_estimate_linear_src_ = &ax->encoder_.pos_estimate_;
-        pos_estimate_valid_src_ = &ax->encoder_.pos_estimate_valid_;
-        if (hybrid_mode) {
-            vel_estimate_src_ = &axis_->sensorless_estimator_.vel_estimate_;
-            vel_estimate_valid_src_ = &axis_->sensorless_estimator_.vel_estimate_valid_;
-        } else {
-            vel_estimate_src_ = &ax->encoder_.vel_estimate_;
-            vel_estimate_valid_src_ = &ax->encoder_.vel_estimate_valid_;
-        }
-        return true;
-    } else {
-        return set_error(Controller::ERROR_INVALID_LOAD_ENCODER), false;
-    }
-}
-
 void Controller::move_to_pos(float goal_point) {
     axis_->trap_traj_.planTrapezoidal(goal_point, pos_setpoint_, vel_setpoint_,
                                  axis_->trap_traj_.config_.vel_limit,
@@ -128,11 +98,11 @@ static float limitVel(const float vel_limit, const float vel_estimate, const flo
 
 bool Controller::update(float* torque_setpoint_output, float torque_limit) {
     float* pos_estimate_linear = (pos_estimate_valid_src_ && *pos_estimate_valid_src_)
-            ? pos_estimate_linear_src_ : nullptr;
+            ? &axis_->pos_estimate_linear_ : nullptr;
     float* pos_estimate_circular = (pos_estimate_valid_src_ && *pos_estimate_valid_src_)
-            ? pos_estimate_circular_src_ : nullptr;
+            ? &axis_->pos_estimate_circular_ : nullptr;
     float* vel_estimate_src = (vel_estimate_valid_src_ && *vel_estimate_valid_src_)
-            ? vel_estimate_src_ : nullptr;
+            ? &axis_->vel_estimate_ : nullptr;
 
     // Calib_anticogging is only true when calibration is occurring, so we can't block anticogging_pos
     float anticogging_pos = axis_->encoder_.pos_estimate_ / axis_->encoder_.getCoggingRatio();
@@ -234,27 +204,29 @@ bool Controller::update(float* torque_setpoint_output, float torque_limit) {
     float gain_scheduling_multiplier = 1.0f;
     float vel_des = vel_setpoint_;
     if (config_.control_mode >= CONTROL_MODE_POSITION_CONTROL) {
+        float pos_err;
+
         if (config_.circular_setpoints) {
             if(!pos_estimate_circular) {
                 set_error(ERROR_INVALID_ESTIMATE);
                 return false;
             }
             // Keep pos setpoint from drifting
-            pos_setpoint_ = fmodf_pos(pos_setpoint_, *pos_wrap_src_);
+            pos_setpoint_ = fmodf_pos(pos_setpoint_, config_.circular_setpoint_range);
             // Circular delta
-            float err = pos_setpoint_ - *pos_estimate_circular;
-            pos_err_ = wrap_pm(err, 0.5f * *pos_wrap_src_);
+            pos_err = pos_setpoint_ - *pos_estimate_circular;
+            pos_err = wrap_pm(pos_err, 0.5f * config_.circular_setpoint_range);
         } else {
             if(!pos_estimate_linear) {
                 set_error(ERROR_INVALID_ESTIMATE);
                 return false;
             }
-            pos_err_ = pos_setpoint_ - *pos_estimate_linear;
+            pos_err = pos_setpoint_ - *pos_estimate_linear;
         }
 
-        vel_des += config_.pos_gain * pos_err_;
+        vel_des += config_.pos_gain * pos_err;
         // V-shaped gain shedule based on position error
-        float abs_pos_err = std::abs(pos_err_);
+        float abs_pos_err = std::abs(pos_err);
         if (config_.enable_gain_scheduling && abs_pos_err <= config_.gain_scheduling_width) {
             gain_scheduling_multiplier = abs_pos_err / config_.gain_scheduling_width;
         }
@@ -262,9 +234,6 @@ bool Controller::update(float* torque_setpoint_output, float torque_limit) {
 
     // Velocity limiting
     float vel_lim = config_.vel_limit;
-    if (hybrid_mode && axis_->gearbox_.encoder_is_scaled()) {
-        vel_lim *= axis_->gearbox_.pos_bwd_ratio();
-    }
     if (config_.enable_vel_limit) {
         vel_des = std::clamp(vel_des, -vel_lim, vel_lim);
     }
@@ -306,18 +275,15 @@ bool Controller::update(float* torque_setpoint_output, float torque_limit) {
         torque += config_.anticogging.cogging_map[std::clamp(mod((int)anticogging_pos, 3600), 0, 3600)];
     }
 
+    float v_err = 0.0f;
     if (config_.control_mode >= CONTROL_MODE_VELOCITY_CONTROL) {
         if (!vel_estimate_src) {
             set_error(ERROR_INVALID_ESTIMATE);
             return false;
         }
 
-        if (hybrid_mode && axis_->gearbox_.encoder_is_scaled()) {
-            vel_err_ = vel_des - *vel_estimate_src * axis_->gearbox_.pos_fwd_ratio();
-        } else {
-            vel_err_ = vel_des - *vel_estimate_src;
-        }
-        torque += (vel_gain * gain_scheduling_multiplier) * vel_err_;
+        v_err = vel_des - *vel_estimate_src;
+        torque += (vel_gain * gain_scheduling_multiplier) * v_err;
 
         // Velocity integral action before limiting
         torque += vel_integrator_torque_;
@@ -352,7 +318,7 @@ bool Controller::update(float* torque_setpoint_output, float torque_limit) {
             // TODO make decayfactor configurable
             vel_integrator_torque_ *= 0.99f;
         } else {
-            vel_integrator_torque_ += ((vel_integrator_gain * gain_scheduling_multiplier) * current_meas_period) * vel_err_;
+            vel_integrator_torque_ += ((vel_integrator_gain * gain_scheduling_multiplier) * current_meas_period) * v_err;
         }
     }
 

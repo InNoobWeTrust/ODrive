@@ -528,7 +528,7 @@ bool Encoder::update() {
     pos_cpr_counts_ = fmodf_pos(pos_cpr_counts_, (float)(config_.cpr));
     vel_estimate_counts_ += current_meas_period * pll_ki_ * delta_pos_cpr_counts;
     bool snap_to_zero_vel = false;
-    if (!axis_->gearbox_.encoder_is_scaled() && std::abs(vel_estimate_counts_) < 0.5f * current_meas_period * pll_ki_) {
+    if (std::abs(vel_estimate_counts_) < 0.5f * current_meas_period * pll_ki_) {
         vel_estimate_counts_ = 0.0f;  //align delta-sigma on zero to prevent jitter
         snap_to_zero_vel = true;
     }
@@ -568,10 +568,10 @@ bool Encoder::update() {
     float ph;
     if (axis_->gearbox_.encoder_is_scaled()) {
         elec_rad_per_enc *= axis_->gearbox_.pos_bwd_ratio();
-        ph = elec_rad_per_enc * pos_estimate_;
-    } else {
+        //ph = elec_rad_per_enc * pos_estimate_;
+    }// else {
         ph = elec_rad_per_enc * (interpolated_enc - config_.offset_float);
-    }
+    //}
     // ph = fmodf(ph, 2*M_PI);
     phase_ = wrap_pm_pi(ph);
 

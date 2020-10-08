@@ -231,7 +231,19 @@ bool Axis::watchdog_check() {
     }
 }
 
-void Axis::sync_phase(bool sensored) {
+void Axis::update_observer(bool sensored) {
+    // Update pos estimate using encoder anyway
+    pos_estimate_linear_ = encoder_.pos_estimate_;
+    pos_estimate_circular_ = encoder_.pos_circular_;
+
+    // Update vel estimate
+    if (!sensored) {
+        vel_estimate_ = sensorless_estimator_.vel_estimate_;
+    } else {
+        vel_estimate_ = encoder_.vel_estimate_;
+    }
+
+    // Update phase and phase vel
     if (!sensored) {
         phase_ = sensorless_estimator_.phase_;
         phase_vel_ = sensorless_estimator_.vel_estimate_erad_;
@@ -239,11 +251,30 @@ void Axis::sync_phase(bool sensored) {
         phase_ = encoder_.phase_;
         phase_vel_ = encoder_.vel_estimate_ * motor_.elec_rad_per_revolution();
     } else {
-        //phase_ = encoder_.phase_;
         phase_ = sensorless_estimator_.phase_;
-        //phase_vel_ = encoder_.vel_estimate_ * motor_.elec_rad_per_revolution() * gearbox_.pos_bwd_ratio();
-        phase_vel_ = sensorless_estimator_.vel_estimate_erad_;
+        phase_vel_ = sensorless_estimator_.vel_estimate_erad_ * motor_.config_.direction;
     }
+}
+
+void Axis::pre_sensored_control(bool set_input) {
+    // Update observer first time to feed initial values to controller
+    update_observer(true);
+
+    // To avoid any transient on startup, we intialize the setpoint to be the current position
+    if (controller_.config_.circular_setpoints) {
+        controller_.pos_setpoint_ = pos_estimate_circular_;
+        if (set_input)
+            controller_.input_pos_ = pos_estimate_circular_;
+    } else {
+        controller_.pos_setpoint_ = pos_estimate_linear_;
+        if (set_input)
+            controller_.input_pos_ = pos_estimate_linear_;
+    }
+    if (set_input)
+        controller_.input_pos_updated();
+
+    // Avoid windup issues
+    controller_.vel_integrator_torque_ = 0.0f;
 }
 
 bool Axis::run_lockin_spin(const LockinConfig_t &lockin_config) {
@@ -313,14 +344,15 @@ bool Axis::run_lockin_spin(const LockinConfig_t &lockin_config) {
 
 // Note run_sensorless_control_loop and run_closed_loop_control_loop are very similar and differ only in where we get the estimate from.
 bool Axis::run_sensorless_control_loop() {
-    controller_.use_sensorless_estimator();
+    controller_.pos_estimate_valid_src_ = nullptr;
+    controller_.vel_estimate_valid_src_ = &sensorless_estimator_.vel_estimate_valid_;
 
     run_control_loop([this](){
+        update_observer(false);
+
         // Note that all estimators are updated in the loop prefix in run_control_loop
         if (!controller_.update(&torque_, motor_.max_available_torque()))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
-
-        sync_phase(false);
 
         if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_
@@ -330,37 +362,14 @@ bool Axis::run_sensorless_control_loop() {
 }
 
 bool Axis::run_closed_loop_control_loop() {
-    if (!controller_.select_encoder(controller_.config_.load_encoder_axis, false)) {
-    //if (!controller_.select_encoder(controller_.config_.load_encoder_axis, gearbox_.encoder_is_scaled())) {
-        return error_ |= ERROR_CONTROLLER_FAILED, false;
-    }
+    controller_.pos_estimate_valid_src_ = &encoder_.pos_estimate_valid_;
+    controller_.vel_estimate_valid_src_ = &encoder_.vel_estimate_valid_;
 
-    // To avoid any transient on startup, we intialize the setpoint to be the current position
-    if (controller_.config_.circular_setpoints) {
-        if (!controller_.pos_estimate_circular_src_) {
-            return error_ |= ERROR_CONTROLLER_FAILED, false;
-        }
-        else {
-            controller_.pos_setpoint_ = *controller_.pos_estimate_circular_src_;
-            controller_.input_pos_ = *controller_.pos_estimate_circular_src_;
-        }
-    }
-    else {
-        if (!controller_.pos_estimate_linear_src_) {
-            return error_ |= ERROR_CONTROLLER_FAILED, false;
-        }
-        else {
-            controller_.pos_setpoint_ = *controller_.pos_estimate_linear_src_;
-            controller_.input_pos_ = *controller_.pos_estimate_linear_src_;
-        }
-    }
-    controller_.input_pos_updated();
-
-    // Avoid integrator windup issues
-    controller_.vel_integrator_torque_ = 0.0f;
-
+    pre_sensored_control(true);
     set_step_dir_active(config_.enable_step_dir);
     run_control_loop([this](){
+        update_observer(true);
+
         // Calculate torque limit for axis
         float torque_limit = motor_.max_available_torque();
         if (gearbox_.encoder_is_scaled()) {
@@ -377,8 +386,6 @@ bool Axis::run_closed_loop_control_loop() {
         } else {
             torque_ = torque_setpoint;
         }
-
-        sync_phase(true);
 
         if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_
@@ -412,41 +419,19 @@ bool Axis::run_homing() {
 
     homing_.is_homed = false;
 
-    if (!controller_.select_encoder(controller_.config_.load_encoder_axis, false)) {
-        return error_ |= ERROR_CONTROLLER_FAILED, false;
-    }
-    
-    // To avoid any transient on startup, we intialize the setpoint to be the current position
-    // note - input_pos_ is not set here. It is set to 0 earlier in this method and velocity control is used.
-    if (controller_.config_.circular_setpoints) {
-        if (!controller_.pos_estimate_circular_src_) {
-            return error_ |= ERROR_CONTROLLER_FAILED, false;
-        }
-        else {
-            controller_.pos_setpoint_ = *controller_.pos_estimate_circular_src_;
-        }
-    }
-    else {
-        if (!controller_.pos_estimate_linear_src_) {
-            return error_ |= ERROR_CONTROLLER_FAILED, false;
-        }
-        else {
-            controller_.pos_setpoint_ = *controller_.pos_estimate_linear_src_;
-        }
-    }
-
-    // Avoid integrator windup issues
-    controller_.vel_integrator_torque_ = 0.0f;
+    pre_sensored_control(false);
 
     run_control_loop([this](){
+        update_observer(true);
+
         // Calculate torque limit for axis
         float torque_limit = motor_.max_available_torque();
         if (gearbox_.encoder_is_scaled()) {
             torque_limit = gearbox_.torque_fwd(torque_limit);
         }
 
-        float torque_setpoint;
         // Note that all estimators are updated in the loop prefix in run_control_loop
+        float torque_setpoint;
         if (!controller_.update(&torque_setpoint, torque_limit))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
 
@@ -455,8 +440,6 @@ bool Axis::run_homing() {
         } else {
             torque_ = torque_setpoint;
         }
-
-        sync_phase(true);
 
         if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_
@@ -481,14 +464,16 @@ bool Axis::run_homing() {
     controller_.input_torque_ = 0.0f;
 
     run_control_loop([this](){
+        update_observer(true);
+
         // Calculate torque limit for axis
         float torque_limit = motor_.max_available_torque();
         if (gearbox_.encoder_is_scaled()) {
             torque_limit = gearbox_.torque_fwd(torque_limit);
         }
 
-        float torque_setpoint;
         // Note that all estimators are updated in the loop prefix in run_control_loop
+        float torque_setpoint;
         if (!controller_.update(&torque_setpoint, torque_limit))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
 
@@ -497,8 +482,6 @@ bool Axis::run_homing() {
         } else {
             torque_ = torque_setpoint;
         }
-
-        sync_phase(true);
 
         if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_
@@ -518,6 +501,8 @@ bool Axis::run_idle_loop() {
     // if and only if we're in AXIS_STATE_IDLE
     safety_critical_disarm_motor_pwm(motor_);
     set_step_dir_active(config_.enable_step_dir && config_.step_dir_always_on);
+    // Avoid integrator windup issues for other loop later
+    controller_.vel_integrator_torque_ = 0.0f;
     run_control_loop([this]() {
         return true;
     });

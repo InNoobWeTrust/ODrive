@@ -57,10 +57,6 @@ public:
         input_pos_updated_ = true;
     }
 
-    bool hybrid_mode = false;
-    void use_sensorless_estimator();
-    bool select_encoder(size_t encoder_num, bool hybrid_mode);
-
     // Trajectory-Planned control
     void move_to_pos(float goal_point);
     void move_incremental(float displacement, bool from_goal_point);
@@ -77,12 +73,8 @@ public:
 
     Error error_ = ERROR_NONE;
 
-    float* pos_estimate_linear_src_ = nullptr;
-    float* pos_estimate_circular_src_ = nullptr;
     bool* pos_estimate_valid_src_ = nullptr;
-    float* vel_estimate_src_ = nullptr;
     bool* vel_estimate_valid_src_ = nullptr;
-    float* pos_wrap_src_ = nullptr; 
 
 
     float pos_setpoint_ = 0.0f; // [turns]
@@ -96,9 +88,6 @@ public:
     float input_torque_ = 0.0f;  // [Nm]
     float input_filter_kp_ = 0.0f;
     float input_filter_ki_ = 0.0f;
-
-    float pos_err_ = 0.0f;      // [turns]
-    float vel_err_ = 0.0f;      // [turn/s]
 
     bool input_pos_updated_ = false;
     

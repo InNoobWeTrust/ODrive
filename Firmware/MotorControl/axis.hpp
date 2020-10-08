@@ -184,9 +184,15 @@ public:
 
     float phase_ = 0.0f;
     float phase_vel_ = 0.0f;
+    float pos_estimate_linear_ = 0.0f;
+    float pos_estimate_circular_ = 0.0f;
+    bool* pos_estimate_valid_src_ = nullptr;
+    float vel_estimate_ = 0.0f;
+    bool* vel_estimate_valid_src_ = nullptr;
+    void update_observer(bool sensored);
     float torque_ = 0.0f;
-    void sync_phase(bool sensored);
 
+    void pre_sensored_control(bool set_input);
     bool run_lockin_spin(const LockinConfig_t &lockin_config);
     bool run_sensorless_control_loop();
     bool run_closed_loop_control_loop();

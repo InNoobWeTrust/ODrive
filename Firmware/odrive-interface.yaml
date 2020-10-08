@@ -365,9 +365,12 @@ interfaces:
       trap_traj: TrapezoidalTrajectory
       min_endstop: Endstop
       max_endstop: Endstop
-      phase: float32
-      phase_vel: float32
-      torque: float32
+      phase: readonly float32
+      phase_vel: readonly float32
+      torque: readonly float32
+      pos_estimate_linear: readonly float32
+      pos_estimate_circular: readonly float32
+      vel_estimate: readonly float32
     functions:
       watchdog_feed:
         doc: Feed the watchdog to prevent watchdog timeouts.
@@ -666,8 +669,6 @@ interfaces:
       pos_setpoint: readonly float32
       vel_setpoint: readonly float32
       torque_setpoint: readonly float32
-      pos_err: readonly float32
-      vel_err: readonly float32
       trajectory_done: readonly bool
       vel_integrator_torque: float32
       anticogging_valid: bool

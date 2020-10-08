@@ -12,9 +12,7 @@ public:
         int32_t gears_in = 1;
         int32_t gears_out = 1;
         // Efficiency
-        float efficiency = 0.0f;        // [%], range (0, 1) exclusive
-        // Friction torque
-        float friction_torque = 0.0f;   // [Nm]
+        float efficiency = 1.0f;        // [%], range (0, 1]
         MountPoint mount_point = MOUNT_POINT_BETWEEN;
 
         Gearbox* parent = nullptr;
