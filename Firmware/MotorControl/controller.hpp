@@ -40,6 +40,29 @@ public:
         bool enable_vel_limit = true;
         bool enable_overspeed_error = true;
         bool enable_current_mode_vel_limit = true;  // enable velocity limit in current control mode (requires a valid velocity estimator)
+        //---------------------------- Servo mode ----------------------------//
+        /*
+        Compensate for backlash and friction on motor velocity:
+        - Load position by encoder
+        - Encoder vel (load side) and sensorless vel (motor side) for disturbance cancellation
+        - [Need verification]: pll bandwidth of encoder and sensorless should be the same
+
+        Disturbance compensated as follow:
+            disturbance += ((gears_out / gears_in) * vel_load - vel_des) * gain
+            vel_des = vel_cmd + disturbance
+        Where:
+            disturbance: the low-pass-filtered disturbance between load vel and vel_des
+            gain: calculated from low pass filter bandwidth specified by `disturbance_filter_bandwidth`
+            vel_load: load velocity measured by encoder
+            vel_des: previously computed motor velocity
+            vel_cmd: demanded motor velocity
+
+        In short: Error from commanded and output vel is compensated in next control loop.
+        Note: disturbance is filtered by simple low-pass filter
+        (specifically, leaky integrator, see: https://en.wikipedia.org/wiki/Leaky_integrator)
+        */
+        float disturbance_filter_bandwidth = 100.0f;
+        //--------------------------------------------------------------------//
         uint8_t axis_to_mirror = -1;
         float mirror_ratio = 1.0f;
         uint8_t load_encoder_axis = -1;  // default depends on Axis number and is set in load_configuration()
@@ -47,6 +70,7 @@ public:
         // custom setters
         Controller* parent;
         void set_input_filter_bandwidth(float value) { input_filter_bandwidth = value; parent->update_filter_gains(); }
+        void set_disturbance_filter_bandwidth(float value) { disturbance_filter_bandwidth = value; parent->update_disturbance_gains(); }
     };
 
     explicit Controller(Config_t& config);
@@ -66,7 +90,8 @@ public:
     bool anticogging_calibration(float pos_estimate, float vel_estimate);
 
     void update_filter_gains();
-    bool update(float* torque_setpoint, float torque_limit);
+    void update_disturbance_gains();
+    bool update(float* torque_setpoint, bool servo_mode);
 
     Config_t& config_;
     Axis* axis_ = nullptr; // set by Axis constructor
@@ -82,6 +107,10 @@ public:
     // float vel_setpoint = 800.0f; <sensorless example>
     float vel_integrator_torque_ = 0.0f;    // [Nm]
     float torque_setpoint_ = 0.0f;  // [Nm]
+
+    float disturbance_filter_gain_ = 0.0f;
+    float vel_disturbance_ = 0.0f;
+    float vel_des_ = 0.0f;
 
     float input_pos_ = 0.0f;     // [turns]
     float input_vel_ = 0.0f;     // [turn/s]

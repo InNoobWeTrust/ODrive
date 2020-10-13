@@ -90,13 +90,19 @@ void Controller::update_filter_gains() {
     input_filter_kp_ = 0.25f * (input_filter_ki_ * input_filter_ki_); // Critically damped
 }
 
+void Controller::update_disturbance_gains() {
+    float bandwidth = std::min(config_.disturbance_filter_bandwidth, 0.25f * current_meas_hz);
+    // Ref: https://github.com/overlord1123/LowPassFilter/blob/master/LowPassFilter.cpp#L50
+    disturbance_filter_gain_ = 1 - exp(-current_meas_period * 2.0f * M_PI * bandwidth);
+}
+
 static float limitVel(const float vel_limit, const float vel_estimate, const float vel_gain, const float torque) {
     float Tmax = (vel_limit - vel_estimate) * vel_gain;
     float Tmin = (-vel_limit - vel_estimate) * vel_gain;
     return std::clamp(torque, Tmin, Tmax);
 }
 
-bool Controller::update(float* torque_setpoint_output, float torque_limit) {
+bool Controller::update(float* torque_setpoint_output, bool servo_mode) {
     float* pos_estimate_linear = (pos_estimate_valid_src_ && *pos_estimate_valid_src_)
             ? &axis_->pos_estimate_linear_ : nullptr;
     float* pos_estimate_circular = (pos_estimate_valid_src_ && *pos_estimate_valid_src_)
@@ -202,7 +208,7 @@ bool Controller::update(float* torque_setpoint_output, float torque_limit) {
     // Position control
     // TODO Decide if we want to use encoder or pll position here
     float gain_scheduling_multiplier = 1.0f;
-    float vel_des = vel_setpoint_;
+    float vel_cmd = vel_setpoint_;
     if (config_.control_mode >= CONTROL_MODE_POSITION_CONTROL) {
         float pos_err;
 
@@ -224,7 +230,22 @@ bool Controller::update(float* torque_setpoint_output, float torque_limit) {
             pos_err = pos_setpoint_ - *pos_estimate_linear;
         }
 
-        vel_des += config_.pos_gain * pos_err;
+        float vel_load_cmd = config_.pos_gain * pos_err;
+
+        if (servo_mode) {
+            // Convert from load side to motor side
+            vel_cmd += vel_load_cmd * axis_->gearbox_.pos_bwd_ratio();
+            float vel_measured = axis_->encoder_.vel_estimate_ * axis_->gearbox_.pos_bwd_ratio();
+            // Update disturbance
+            float disturbance = vel_measured - vel_des_;
+            // Ref: https://github.com/overlord1123/LowPassFilter/blob/master/LowPassFilter.cpp#L36
+            vel_disturbance_ += disturbance * disturbance_filter_gain_;
+            // Apply disturbance compensation
+            vel_cmd += vel_disturbance_;
+        } else {
+            vel_cmd += vel_load_cmd;
+        }
+
         // V-shaped gain shedule based on position error
         float abs_pos_err = std::abs(pos_err);
         if (config_.enable_gain_scheduling && abs_pos_err <= config_.gain_scheduling_width) {
@@ -235,7 +256,7 @@ bool Controller::update(float* torque_setpoint_output, float torque_limit) {
     // Velocity limiting
     float vel_lim = config_.vel_limit;
     if (config_.enable_vel_limit) {
-        vel_des = std::clamp(vel_des, -vel_lim, vel_lim);
+        vel_des_ = std::clamp(vel_cmd, -vel_lim, vel_lim);
     }
 
     // Check for overspeed fault (done in this module (controller) for cohesion with vel_lim)
@@ -282,7 +303,7 @@ bool Controller::update(float* torque_setpoint_output, float torque_limit) {
             return false;
         }
 
-        v_err = vel_des - *vel_estimate_src;
+        v_err = vel_des_ - *vel_estimate_src;
         torque += (vel_gain * gain_scheduling_multiplier) * v_err;
 
         // Velocity integral action before limiting
@@ -300,13 +321,14 @@ bool Controller::update(float* torque_setpoint_output, float torque_limit) {
 
     // Torque limiting
     bool limited = false;
-    if (torque > torque_limit) {
+    float Tlim = axis_->motor_.max_available_torque();
+    if (torque > Tlim) {
         limited = true;
-        torque = torque_limit;
+        torque = Tlim;
     }
-    if (torque < -torque_limit) {
+    if (torque < -Tlim) {
         limited = true;
-        torque = -torque_limit;
+        torque = -Tlim;
     }
 
     // Velocity integrator (behaviour dependent on limiting)

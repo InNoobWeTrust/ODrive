@@ -236,27 +236,28 @@ void Axis::update_observer(bool sensored) {
     pos_estimate_linear_ = encoder_.pos_estimate_;
     pos_estimate_circular_ = encoder_.pos_circular_;
 
-    // Update vel estimate
-    if (!sensored) {
-        vel_estimate_ = sensorless_estimator_.vel_estimate_;
-    } else {
+    // Update vel and phase
+    if (sensored && !gearbox_.encoder_is_scaled()) {
         vel_estimate_ = encoder_.vel_estimate_;
-    }
-
-    // Update phase and phase vel
-    if (!sensored) {
-        phase_ = sensorless_estimator_.phase_;
-        phase_vel_ = sensorless_estimator_.vel_estimate_erad_;
-    } else if (!gearbox_.encoder_is_scaled()) {
         phase_ = encoder_.phase_;
         phase_vel_ = encoder_.vel_estimate_ * motor_.elec_rad_per_revolution();
     } else {
+        vel_estimate_ = sensorless_estimator_.vel_estimate_;
         phase_ = sensorless_estimator_.phase_;
-        phase_vel_ = sensorless_estimator_.vel_estimate_erad_ * motor_.config_.direction;
+        phase_vel_ = sensorless_estimator_.vel_estimate_erad_;
     }
 }
 
 void Axis::pre_sensored_control(bool set_input) {
+    // Set validation source for controller
+    controller_.pos_estimate_valid_src_ = &encoder_.pos_estimate_valid_;
+    if (!gearbox_.encoder_is_scaled()) {
+        controller_.vel_estimate_valid_src_ = &encoder_.vel_estimate_valid_;
+    } else {
+        // Servo mode
+        controller_.vel_estimate_valid_src_ = &sensorless_estimator_.vel_estimate_valid_;
+    }
+
     // Update observer first time to feed initial values to controller
     update_observer(true);
 
@@ -275,6 +276,7 @@ void Axis::pre_sensored_control(bool set_input) {
 
     // Avoid windup issues
     controller_.vel_integrator_torque_ = 0.0f;
+    controller_.vel_disturbance_ = 0.0f;
 }
 
 bool Axis::run_lockin_spin(const LockinConfig_t &lockin_config) {
@@ -351,7 +353,7 @@ bool Axis::run_sensorless_control_loop() {
         update_observer(false);
 
         // Note that all estimators are updated in the loop prefix in run_control_loop
-        if (!controller_.update(&torque_, motor_.max_available_torque()))
+        if (!controller_.update(&torque_, false))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
 
         if (!motor_.update(torque_, phase_, phase_vel_))
@@ -362,30 +364,14 @@ bool Axis::run_sensorless_control_loop() {
 }
 
 bool Axis::run_closed_loop_control_loop() {
-    controller_.pos_estimate_valid_src_ = &encoder_.pos_estimate_valid_;
-    controller_.vel_estimate_valid_src_ = &encoder_.vel_estimate_valid_;
-
     pre_sensored_control(true);
     set_step_dir_active(config_.enable_step_dir);
     run_control_loop([this](){
         update_observer(true);
 
-        // Calculate torque limit for axis
-        float torque_limit = motor_.max_available_torque();
-        if (gearbox_.encoder_is_scaled()) {
-            torque_limit = gearbox_.torque_fwd(torque_limit);
-        }
-
-        float torque_setpoint;
         // Note that all estimators are updated in the loop prefix in run_control_loop
-        if (!controller_.update(&torque_setpoint, torque_limit))
+        if (!controller_.update(&torque_, gearbox_.encoder_is_scaled()))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
-
-        if (gearbox_.encoder_is_scaled()) {
-            torque_ = gearbox_.torque_bwd(torque_setpoint);
-        } else {
-            torque_ = torque_setpoint;
-        }
 
         if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_
@@ -424,22 +410,9 @@ bool Axis::run_homing() {
     run_control_loop([this](){
         update_observer(true);
 
-        // Calculate torque limit for axis
-        float torque_limit = motor_.max_available_torque();
-        if (gearbox_.encoder_is_scaled()) {
-            torque_limit = gearbox_.torque_fwd(torque_limit);
-        }
-
         // Note that all estimators are updated in the loop prefix in run_control_loop
-        float torque_setpoint;
-        if (!controller_.update(&torque_setpoint, torque_limit))
+        if (!controller_.update(&torque_, gearbox_.encoder_is_scaled()))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
-
-        if (gearbox_.encoder_is_scaled()) {
-            torque_ = gearbox_.torque_bwd(torque_setpoint);
-        } else {
-            torque_ = torque_setpoint;
-        }
 
         if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_
@@ -466,22 +439,9 @@ bool Axis::run_homing() {
     run_control_loop([this](){
         update_observer(true);
 
-        // Calculate torque limit for axis
-        float torque_limit = motor_.max_available_torque();
-        if (gearbox_.encoder_is_scaled()) {
-            torque_limit = gearbox_.torque_fwd(torque_limit);
-        }
-
         // Note that all estimators are updated in the loop prefix in run_control_loop
-        float torque_setpoint;
-        if (!controller_.update(&torque_setpoint, torque_limit))
+        if (!controller_.update(&torque_, gearbox_.encoder_is_scaled()))
             return error_ |= ERROR_CONTROLLER_FAILED, false;
-
-        if (gearbox_.encoder_is_scaled()) {
-            torque_ = gearbox_.torque_bwd(torque_setpoint);
-        } else {
-            torque_ = torque_setpoint;
-        }
 
         if (!motor_.update(torque_, phase_, phase_vel_))
             return false; // set_error should update axis.error_

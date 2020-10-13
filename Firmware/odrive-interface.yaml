@@ -411,10 +411,7 @@ interfaces:
           enabled: bool
           gears_in: int32
           gears_out: int32
-          efficiency:
-            type: float32
-            unit: \%
-            c_setter: set_efficiency
+          # Currently only support gearbox with load encoder
           mount_point: MountPoint
 
   ODrive.ThermistorCurrentLimiter:
@@ -668,6 +665,8 @@ interfaces:
       input_torque: float32
       pos_setpoint: readonly float32
       vel_setpoint: readonly float32
+      vel_disturbance: readonly float32
+      vel_des: readonly float32
       torque_setpoint: readonly float32
       trajectory_done: readonly bool
       vel_integrator_torque: float32
@@ -696,6 +695,11 @@ interfaces:
             type: float32
             unit: Nm/(turn/s * s)
             doc: units = Nm/(turn/s * s), default = 0.32
+          disturbance_filter_bandwidth:
+            type: float32
+            c_setter: set_disturbance_filter_bandwidth
+            unit: Hz
+            doc: low pass filter cutoff frequency, default = 100
           vel_limit:
             type: float32
             unit: turn/s
@@ -1066,5 +1070,5 @@ valuetypes:
 
   ODrive.Gearbox.MountPoint:
     values:
-      Between:
+      Between: {value: 0}
       Outward:

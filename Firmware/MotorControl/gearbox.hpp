@@ -11,12 +11,9 @@ public:
         bool enabled = false;
         int32_t gears_in = 1;
         int32_t gears_out = 1;
-        // Efficiency
-        float efficiency = 1.0f;        // [%], range (0, 1]
         MountPoint mount_point = MOUNT_POINT_BETWEEN;
 
         Gearbox* parent = nullptr;
-        void set_efficiency(float eff) { if (0 < eff && eff < 1)  efficiency = eff; }
     };
 
     explicit Gearbox(Config_t& config);
@@ -27,8 +24,6 @@ public:
         return config_.enabled && MOUNT_POINT_BETWEEN == config_.mount_point;
     }
 
-    float torque_fwd(float torque_in);
-    float torque_bwd(float torque_out);
     float pos_fwd_ratio();
     float pos_bwd_ratio();
 };
