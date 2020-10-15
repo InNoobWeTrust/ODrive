@@ -48,20 +48,21 @@ public:
         - [Need verification]: pll bandwidth of encoder and sensorless should be the same
 
         Disturbance compensated as follow:
-            disturbance += ((gears_out / gears_in) * vel_load - vel_des) * gain
+            momentary_disturbance = vel_des - (gears_out / gears_in) * vel_load
+            disturbance += (momentary_disturbance - disturbance) * gain
             vel_des = vel_cmd + disturbance
         Where:
+            momentary_disturbance: measured disturbance sample
             disturbance: the low-pass-filtered disturbance between load vel and vel_des
             gain: calculated from low pass filter bandwidth specified by `disturbance_filter_bandwidth`
             vel_load: load velocity measured by encoder
-            vel_des: previously computed motor velocity
-            vel_cmd: demanded motor velocity
+            vel_des: previously demanded motor velocity
+            vel_cmd: demanded load velocity scaled to motor side
 
-        In short: Error from commanded and output vel is compensated in next control loop.
-        Note: disturbance is filtered by simple low-pass filter
-        (specifically, leaky integrator, see: https://en.wikipedia.org/wiki/Leaky_integrator)
+        In short: Error from commanded motor and output vel is compensated in next control loop.
         */
         float disturbance_filter_bandwidth = 100.0f;
+        float disturbance_gain = 0.75f;
         //--------------------------------------------------------------------//
         uint8_t axis_to_mirror = -1;
         float mirror_ratio = 1.0f;

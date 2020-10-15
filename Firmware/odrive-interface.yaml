@@ -700,6 +700,9 @@ interfaces:
             c_setter: set_disturbance_filter_bandwidth
             unit: Hz
             doc: low pass filter cutoff frequency, default = 100
+          disturbance_gain:
+            type: float32
+            doc: gain for disturbance. Default 0.75
           vel_limit:
             type: float32
             unit: turn/s

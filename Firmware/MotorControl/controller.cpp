@@ -235,15 +235,19 @@ bool Controller::update(float* torque_setpoint_output, bool servo_mode) {
         if (servo_mode) {
             // Convert from load side to motor side
             vel_cmd += vel_load_cmd * axis_->gearbox_.pos_bwd_ratio();
-            float vel_measured = axis_->encoder_.vel_estimate_ * axis_->gearbox_.pos_bwd_ratio();
-            // Update disturbance
-            float disturbance = vel_measured - vel_des_;
-            // Ref: https://github.com/overlord1123/LowPassFilter/blob/master/LowPassFilter.cpp#L36
-            vel_disturbance_ += disturbance * disturbance_filter_gain_;
-            // Apply disturbance compensation
-            vel_cmd += vel_disturbance_;
         } else {
             vel_cmd += vel_load_cmd;
+        }
+
+        if (servo_mode) {
+            float vel_measured = axis_->encoder_.vel_estimate_ * axis_->gearbox_.pos_bwd_ratio();
+            // Update disturbance
+            float momentary_disturbance = vel_des_ - vel_measured;
+            // Low pass filter
+            // Ref: https://github.com/overlord1123/LowPassFilter/blob/master/LowPassFilter.cpp#L36
+            vel_disturbance_ += (momentary_disturbance - vel_disturbance_) * disturbance_filter_gain_;
+            // Apply disturbance compensation
+            vel_cmd += config_.disturbance_gain * vel_disturbance_;
         }
 
         // V-shaped gain shedule based on position error
