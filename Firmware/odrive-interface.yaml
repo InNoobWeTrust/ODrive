@@ -702,7 +702,11 @@ interfaces:
             doc: low pass filter cutoff frequency, default = 100
           disturbance_gain:
             type: float32
-            doc: gain for disturbance. Default 0.75
+            doc: gain for disturbance, default 0.75
+          disturbance_compensation_start_vel:
+            type: float32
+            unit: turn/s
+            doc: minimum sensorless vel to begin compensate for disturbance, default 0.25
           vel_limit:
             type: float32
             unit: turn/s

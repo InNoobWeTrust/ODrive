@@ -63,6 +63,8 @@ public:
         */
         float disturbance_filter_bandwidth = 100.0f;
         float disturbance_gain = 0.75f;
+        // Sensorless is not reliable at low speed, limit if use sensorless
+        float disturbance_compensation_start_vel = 0.25f;
         //--------------------------------------------------------------------//
         uint8_t axis_to_mirror = -1;
         float mirror_ratio = 1.0f;

@@ -239,10 +239,13 @@ bool Controller::update(float* torque_setpoint_output, bool servo_mode) {
             vel_cmd += vel_load_cmd;
         }
 
-        if (servo_mode) {
+        // Disturbance compensation (gears backlash,friction, etc..)
+        if (servo_mode &&
+            vel_des_ > config_.disturbance_compensation_start_vel &&
+            *vel_estimate_src > config_.disturbance_compensation_start_vel) {
             float vel_measured = axis_->encoder_.vel_estimate_ * axis_->gearbox_.pos_bwd_ratio();
             // Update disturbance
-            float momentary_disturbance = vel_des_ - vel_measured;
+            float momentary_disturbance = *vel_estimate_src - vel_measured;
             // Low pass filter
             // Ref: https://github.com/overlord1123/LowPassFilter/blob/master/LowPassFilter.cpp#L36
             vel_disturbance_ += (momentary_disturbance - vel_disturbance_) * disturbance_filter_gain_;
