@@ -296,26 +296,18 @@ bool Controller::update(float* torque_setpoint_output, bool servo_mode) {
         v_err = vel_des_ - *vel_estimate_src;
 
         if (servo_mode) {
-            // Standardize for torque control
+            // Standardize to motor side
             v_err *= axis_->gearbox_.pos_bwd_ratio();
-        }
 
-        // Disturbance compensation (gears backlash,friction, etc..)
-        if (servo_mode) {
-            // Need sensorless for compensation
-            if (!axis_->sensorless_estimator_.vel_estimate_valid_) {
-                set_error(ERROR_INVALID_ESTIMATE);
-                return false;
-            }
-
-            float vel_measured = *vel_estimate_src * axis_->gearbox_.pos_bwd_ratio();
-            // Update disturbance
-            float momentary_disturbance = axis_->sensorless_estimator_.vel_estimate_ - vel_measured;
+            float vel_load = *vel_estimate_src * axis_->gearbox_.pos_bwd_ratio();
+            // Disturbance compensation (gears backlash,friction, etc..)
+            float momentary_disturbance =  axis_->sensorless_estimator_.vel_estimate_ - vel_load;
             // Low pass filter
             // Ref: https://github.com/overlord1123/LowPassFilter/blob/master/LowPassFilter.cpp#L36
-            vel_disturbance_ += (momentary_disturbance - vel_disturbance_) * disturbance_filter_gain_;
-            // Apply disturbance compensation
-            v_err += config_.disturbance_gain * vel_disturbance_;
+            disturbance_ += (momentary_disturbance - disturbance_) * disturbance_filter_gain_;
+
+            // Apply compensation
+            v_err += config_.disturbance_gain * disturbance_;
         }
 
         torque += (vel_gain * gain_scheduling_multiplier) * v_err;
@@ -326,19 +318,11 @@ bool Controller::update(float* torque_setpoint_output, bool servo_mode) {
 
     // Velocity limiting in current mode
     if (config_.control_mode < CONTROL_MODE_VELOCITY_CONTROL && config_.enable_current_mode_vel_limit) {
-        if (!servo_mode) {
-            if (!vel_estimate_src) {
-                set_error(ERROR_INVALID_ESTIMATE);
-                return false;
-            }
-            torque = limitVel(motor_vel_lim, *vel_estimate_src, vel_gain, torque);
-        } else {
-            if (!axis_->sensorless_estimator_.vel_estimate_valid_) {
-                set_error(ERROR_INVALID_ESTIMATE);
-                return false;
-            }
-            torque = limitVel(motor_vel_lim, axis_->sensorless_estimator_.vel_estimate_, vel_gain, torque);
+        if (!vel_estimate_src) {
+            set_error(ERROR_INVALID_ESTIMATE);
+            return false;
         }
+        torque = limitVel(motor_vel_lim, *vel_estimate_src, vel_gain, torque);
     }
 
     // Torque limiting

@@ -235,7 +235,7 @@ void Axis::update_observer(bool sensored) {
     // Update pos estimate using encoder anyway
     pos_estimate_linear_ = encoder_.pos_estimate_;
     pos_estimate_circular_ = encoder_.pos_circular_;
-    // Use encoder vel if sensored
+
     if (sensored) {
         vel_estimate_ = encoder_.vel_estimate_;
     } else {
@@ -275,7 +275,7 @@ void Axis::pre_sensored_control(bool set_input) {
 
     // Avoid windup issues
     controller_.vel_integrator_torque_ = 0.0f;
-    controller_.vel_disturbance_ = 0.0f;
+    controller_.disturbance_ = 0.0f;
 }
 
 bool Axis::run_lockin_spin(const LockinConfig_t &lockin_config) {

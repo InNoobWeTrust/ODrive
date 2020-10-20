@@ -62,9 +62,7 @@ public:
         In short: Error from commanded motor and output vel is compensated in next control loop.
         */
         float disturbance_filter_bandwidth = 100.0f;
-        float disturbance_gain = 0.75f;
-        // Sensorless is not reliable at low speed, limit if use sensorless
-        float disturbance_compensation_start_vel = 0.25f; // Note: vel measured by sensorless_estimator_
+        float disturbance_gain = 0.25f;
         //--------------------------------------------------------------------//
         uint8_t axis_to_mirror = -1;
         float mirror_ratio = 1.0f;
@@ -112,7 +110,7 @@ public:
     float torque_setpoint_ = 0.0f;  // [Nm]
 
     float disturbance_filter_gain_ = 0.0f;
-    float vel_disturbance_ = 0.0f;
+    float disturbance_ = 0.0f;
     float vel_des_ = 0.0f;
 
     float input_pos_ = 0.0f;     // [turns]

@@ -665,7 +665,6 @@ interfaces:
       input_torque: float32
       pos_setpoint: readonly float32
       vel_setpoint: readonly float32
-      vel_disturbance: readonly float32
       vel_des: readonly float32
       torque_setpoint: readonly float32
       trajectory_done: readonly bool
@@ -702,11 +701,7 @@ interfaces:
             doc: low pass filter cutoff frequency, default = 100
           disturbance_gain:
             type: float32
-            doc: gain for disturbance, default 0.75
-          disturbance_compensation_start_vel:
-            type: float32
-            unit: turn/s
-            doc: minimum sensorless vel to begin compensate for disturbance, default 0.25
+            doc: gain for disturbance, default 0.05
           vel_limit:
             type: float32
             unit: turn/s

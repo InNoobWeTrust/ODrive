@@ -20,7 +20,7 @@ bool SensorlessEstimator::update() {
         one_by_sqrt3 * (axis_->motor_.current_meas_.phB - axis_->motor_.current_meas_.phC)};
 
     // Swap sign of I_beta if motor is reversed
-    I_alpha_beta[1] *= axis_->motor_.config_.direction;
+    I_alpha_beta[1] *= (float)axis_->motor_.config_.direction;
 
     // alpha-beta vector operations
     float eta[2];
@@ -54,7 +54,7 @@ bool SensorlessEstimator::update() {
 
     // Flux state estimation done, store V_alpha_beta for next timestep
     V_alpha_beta_memory_[0] = axis_->motor_.current_control_.final_v_alpha;
-    V_alpha_beta_memory_[1] = axis_->motor_.current_control_.final_v_beta * axis_->motor_.config_.direction;
+    V_alpha_beta_memory_[1] = axis_->motor_.current_control_.final_v_beta * (float)axis_->motor_.config_.direction;
 
     // PLL
     // TODO: the PLL part has some code duplication with the encoder PLL
