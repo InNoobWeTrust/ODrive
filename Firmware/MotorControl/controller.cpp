@@ -230,28 +230,7 @@ bool Controller::update(float* torque_setpoint_output, bool servo_mode) {
             pos_err = pos_setpoint_ - *pos_estimate_linear;
         }
 
-        float vel_load_cmd = config_.pos_gain * pos_err;
-
-        if (servo_mode) {
-            // Convert from load side to motor side
-            vel_cmd += vel_load_cmd * axis_->gearbox_.pos_bwd_ratio();
-        } else {
-            vel_cmd += vel_load_cmd;
-        }
-
-        // Disturbance compensation (gears backlash,friction, etc..)
-        if (servo_mode &&
-            vel_des_ > config_.disturbance_compensation_start_vel &&
-            *vel_estimate_src > config_.disturbance_compensation_start_vel) {
-            float vel_measured = axis_->encoder_.vel_estimate_ * axis_->gearbox_.pos_bwd_ratio();
-            // Update disturbance
-            float momentary_disturbance = *vel_estimate_src - vel_measured;
-            // Low pass filter
-            // Ref: https://github.com/overlord1123/LowPassFilter/blob/master/LowPassFilter.cpp#L36
-            vel_disturbance_ += (momentary_disturbance - vel_disturbance_) * disturbance_filter_gain_;
-            // Apply disturbance compensation
-            vel_cmd += config_.disturbance_gain * vel_disturbance_;
-        }
+        vel_cmd += config_.pos_gain * pos_err;
 
         // V-shaped gain shedule based on position error
         float abs_pos_err = std::abs(pos_err);
@@ -261,9 +240,13 @@ bool Controller::update(float* torque_setpoint_output, bool servo_mode) {
     }
 
     // Velocity limiting
-    float vel_lim = config_.vel_limit;
+    float motor_vel_lim = config_.vel_limit;
+    float load_vel_lim = motor_vel_lim;
+    if (servo_mode) {
+        load_vel_lim *= axis_->gearbox_.pos_fwd_ratio();
+    }
     if (config_.enable_vel_limit) {
-        vel_des_ = std::clamp(vel_cmd, -vel_lim, vel_lim);
+        vel_des_ = std::clamp(vel_cmd, -load_vel_lim, load_vel_lim);
     }
 
     // Check for overspeed fault (done in this module (controller) for cohesion with vel_lim)
@@ -272,7 +255,7 @@ bool Controller::update(float* torque_setpoint_output, bool servo_mode) {
             set_error(ERROR_INVALID_ESTIMATE);
             return false;
         }
-        if (std::abs(*vel_estimate_src) > config_.vel_limit_tolerance * vel_lim) {
+        if (std::abs(*vel_estimate_src) > config_.vel_limit_tolerance * load_vel_lim) {
             set_error(ERROR_OVERSPEED);
             return false;
         }
@@ -311,6 +294,30 @@ bool Controller::update(float* torque_setpoint_output, bool servo_mode) {
         }
 
         v_err = vel_des_ - *vel_estimate_src;
+
+        if (servo_mode) {
+            // Standardize for torque control
+            v_err *= axis_->gearbox_.pos_bwd_ratio();
+        }
+
+        // Disturbance compensation (gears backlash,friction, etc..)
+        if (servo_mode) {
+            // Need sensorless for compensation
+            if (!axis_->sensorless_estimator_.vel_estimate_valid_) {
+                set_error(ERROR_INVALID_ESTIMATE);
+                return false;
+            }
+
+            float vel_measured = *vel_estimate_src * axis_->gearbox_.pos_bwd_ratio();
+            // Update disturbance
+            float momentary_disturbance = axis_->sensorless_estimator_.vel_estimate_ - vel_measured;
+            // Low pass filter
+            // Ref: https://github.com/overlord1123/LowPassFilter/blob/master/LowPassFilter.cpp#L36
+            vel_disturbance_ += (momentary_disturbance - vel_disturbance_) * disturbance_filter_gain_;
+            // Apply disturbance compensation
+            v_err += config_.disturbance_gain * vel_disturbance_;
+        }
+
         torque += (vel_gain * gain_scheduling_multiplier) * v_err;
 
         // Velocity integral action before limiting
@@ -319,11 +326,19 @@ bool Controller::update(float* torque_setpoint_output, bool servo_mode) {
 
     // Velocity limiting in current mode
     if (config_.control_mode < CONTROL_MODE_VELOCITY_CONTROL && config_.enable_current_mode_vel_limit) {
-        if (!vel_estimate_src) {
-            set_error(ERROR_INVALID_ESTIMATE);
-            return false;
+        if (!servo_mode) {
+            if (!vel_estimate_src) {
+                set_error(ERROR_INVALID_ESTIMATE);
+                return false;
+            }
+            torque = limitVel(motor_vel_lim, *vel_estimate_src, vel_gain, torque);
+        } else {
+            if (!axis_->sensorless_estimator_.vel_estimate_valid_) {
+                set_error(ERROR_INVALID_ESTIMATE);
+                return false;
+            }
+            torque = limitVel(motor_vel_lim, axis_->sensorless_estimator_.vel_estimate_, vel_gain, torque);
         }
-        torque = limitVel(vel_lim, *vel_estimate_src, vel_gain, torque);
     }
 
     // Torque limiting

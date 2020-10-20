@@ -440,9 +440,12 @@ bool Motor::FOC_current(float Id_des, float Iq_des, float I_phase, float pwm_pha
 // phase [rad electrical]
 // phase_vel [rad/s electrical]
 bool Motor::update(float torque_setpoint, float phase, float phase_vel) {
+    // Correct direction
+    phase *= (float)config_.direction;
+    phase_vel *= (float)config_.direction;
+    torque_setpoint *= (float)config_.direction;
+
     float current_setpoint = 0.0f;
-    phase *= config_.direction;
-    phase_vel *= config_.direction;
 
     if (config_.motor_type == MOTOR_TYPE_ACIM) {
         current_setpoint = torque_setpoint / (config_.torque_constant * fmax(current_control_.acim_rotor_flux, config_.acim_gain_min_flux));
@@ -450,7 +453,6 @@ bool Motor::update(float torque_setpoint, float phase, float phase_vel) {
     else {
         current_setpoint = torque_setpoint / config_.torque_constant;
     }
-    current_setpoint *= config_.direction;
 
     // TODO: 2-norm vs independent clamping (current could be sqrt(2) bigger)
     float ilim = effective_current_lim();

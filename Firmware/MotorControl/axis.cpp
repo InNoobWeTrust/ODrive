@@ -235,14 +235,18 @@ void Axis::update_observer(bool sensored) {
     // Update pos estimate using encoder anyway
     pos_estimate_linear_ = encoder_.pos_estimate_;
     pos_estimate_circular_ = encoder_.pos_circular_;
+    // Use encoder vel if sensored
+    if (sensored) {
+        vel_estimate_ = encoder_.vel_estimate_;
+    } else {
+        vel_estimate_ = sensorless_estimator_.vel_estimate_;
+    }
 
     // Update vel and phase
     if (sensored && !gearbox_.encoder_is_scaled()) {
-        vel_estimate_ = encoder_.vel_estimate_;
         phase_ = encoder_.phase_;
         phase_vel_ = encoder_.vel_estimate_ * motor_.elec_rad_per_revolution();
     } else {
-        vel_estimate_ = sensorless_estimator_.vel_estimate_;
         phase_ = sensorless_estimator_.phase_;
         phase_vel_ = sensorless_estimator_.vel_estimate_erad_;
     }
@@ -251,12 +255,7 @@ void Axis::update_observer(bool sensored) {
 void Axis::pre_sensored_control(bool set_input) {
     // Set validation source for controller
     controller_.pos_estimate_valid_src_ = &encoder_.pos_estimate_valid_;
-    if (!gearbox_.encoder_is_scaled()) {
-        controller_.vel_estimate_valid_src_ = &encoder_.vel_estimate_valid_;
-    } else {
-        // Servo mode
-        controller_.vel_estimate_valid_src_ = &sensorless_estimator_.vel_estimate_valid_;
-    }
+    controller_.vel_estimate_valid_src_ = &encoder_.vel_estimate_valid_;
 
     // Update observer first time to feed initial values to controller
     update_observer(true);
